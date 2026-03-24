@@ -1,0 +1,5 @@
+# Never commit actual GPG key material
+private_dot_gnupg/pubring.kbx
+private_dot_gnupg/trustdb.gpg
+private_dot_gnupg/private-keys-v1.d
+private_dot_gnupg/openpgp-revocs.d
