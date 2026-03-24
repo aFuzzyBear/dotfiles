@@ -1,5 +1,6 @@
-# ── VSCode integration ────────────────────────────────────────────────────────
-[[ "$TERM_PROGRAM" == "vscode" ]] && . "$(code --locate-shell-integration-path zsh)"
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
+for f in ~/.zsh/conf.d/*.zsh(N); do source "$f"; done
 
-# ── Load conf.d ───────────────────────────────────────────────────────────────
-for f in ~/.zsh/conf.d/*.zsh; do source "$f"; done
+# ── VSCode shell integration ───────────────────────────────────────────────────
+[[ "$TERM_PROGRAM" == "vscode" ]] && \
+  . "$(code --locate-shell-integration-path zsh)"
