@@ -1,0 +1,5 @@
+# ── VSCode integration ────────────────────────────────────────────────────────
+[[ "$TERM_PROGRAM" == "vscode" ]] && . "$(code --locate-shell-integration-path zsh)"
+
+# ── Load conf.d ───────────────────────────────────────────────────────────────
+for f in ~/.zsh/conf.d/*.zsh; do source "$f"; done
