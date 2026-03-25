@@ -16,7 +16,7 @@ _.file = "env.sh"
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 # Everything mise can manage lives here.
-# apt owns: zsh, gpg, build-essential, wslu, pinentry-gtk-2, pass, syncthing
+# apt owns: zsh, gpg, build-essential, wslu, pinentry-gtk2, pass, syncthing
 # Everything else: mise owns it.
 [tools]
 usage = "latest"
@@ -188,7 +188,7 @@ echo "✓ ~/.zsh directory structure created"
 
 # Default shell
 if [[ "$SHELL" != "$(which zsh)" ]]; then
-  chsh -s "$(which zsh)"
+  sudo usermod -s "$(which zsh)" "$USER"
   echo "✓ Default shell set to zsh (takes effect on next login)"
 else
   echo "  zsh already default shell"
