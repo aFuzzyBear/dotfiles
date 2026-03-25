@@ -10,13 +10,11 @@ curl -sSL https://raw.githubusercontent.com/aFuzzyBear/dotfiles/main/setup.sh | 
 
 > 🐻 **“Just the bear necessities,
 the simple fuzzy dev‑remedies —
-no tribal knowledge lurking in the trees,
-no ‘oh, I forgot to mention these.’
-
-Everything declared, versioned, clean,
-minimizing your worries and your strife —
+no tribes with their knowledge lurking in the shadows,
+Everything that a bear would need, fully declared and versioned,
+minimizing our worries and your strife —
 the bear necessities of a fuzzy pipeline
-come to life.”**
+come to you.”**
 
 > **Platform scope:** WSL Ubuntu 24.04 LTS. The shell layer (starship, fzf-tab, zoxide, atuin, mise, chezmoi) is fully portable and runs on macOS unchanged. The system bootstrap (apt, pinentry-gtk-2, wslu, systemd) is Ubuntu-specific and would need a Darwin branch. Known future direction — contributions welcome.
 
