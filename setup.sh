@@ -100,7 +100,7 @@ sudo apt install -y \
   build-essential \
   ca-certificates \
   wslu \
-  pinentry-gtk-2 \
+  pinentry-gtk2 \
   syncthing \
   pass \
   bat \
