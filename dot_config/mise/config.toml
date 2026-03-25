@@ -1,0 +1,413 @@
+# ~/.config/mise/config.toml
+# Global mise configuration for FuzzyOS
+# Managed by chezmoi — edit via: czedit ~/.config/mise/config.toml
+#
+# Ownership model:
+#   bootstrap.sh  → installs mise + chezmoi, applies dotfiles, calls mise run bootstrap
+#   [tools]       → every runtime and CLI tool, single source of truth
+#   [tasks]       → full bootstrap task graph + day-to-day operations
+#   [env]         → non-secret machine-level env vars (secrets → pass)
+
+[settings]
+experimental = true
+
+[env]
+_.file = "env.sh"
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+# Everything mise can manage lives here.
+# apt owns: zsh, gpg, build-essential, wslu, pinentry-gtk-2, pass, syncthing
+# Everything else: mise owns it.
+[tools]
+usage = "latest"
+starship = "latest"
+fzf = "latest"
+zoxide = "latest"
+atuin = "latest"
+chezmoi = "latest"
+eza = "latest"
+bat = "latest"
+gh = "latest"
+jq = "latest"
+ripgrep = "latest"
+fd = "latest"
+node = "lts"
+pnpm = "latest"
+"github:tealdeer-rs/tealdeer" = "latest"
+"aqua:syncthing/syncthing" = "latest"
+
+# ── Bootstrap task graph ──────────────────────────────────────────────────────
+# Entry point called by bootstrap.sh after: mise install && mise reshim
+# Safe to re-run — all steps are idempotent.
+
+[tasks.bootstrap]
+description = "Full environment setup — run once after chezmoi apply on a fresh machine"
+depends = [
+    "bootstrap:dotfiles",
+    "bootstrap:git",
+    "bootstrap:gpg",
+    "bootstrap:shell",
+    "bootstrap:plugins",
+    "bootstrap:completions",
+    "bootstrap:syncthing",
+    "bootstrap:atuin",
+]
+run = """
+echo ''
+echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+echo '  Bootstrap complete'
+echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+echo ''
+echo '  Remaining manual steps:'
+echo '  1. Generate GPG key:         gpg --full-generate-key'
+echo '  2. Add to GitHub:            gpg --armor --export <KEY_ID>'
+echo '  3. Init pass store:          pass init <KEY_ID>'
+echo '  4. Store credentials:        pass insert infisical/$(hostname)/client-id'
+echo '  5. Pair Syncthing:           http://localhost:8384'
+echo '  6. Launch:                   exec zsh'
+echo ''
+"""
+
+# ── Dotfiles ──────────────────────────────────────────────────────────────────
+[tasks."bootstrap:dotfiles"]
+description = "Apply chezmoi dotfiles and verify managed files are in place"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOTFILES_REPO="https://github.com/aFuzzyBear/dotfiles.git"
+
+if [[ ! -d ~/.local/share/chezmoi/.git ]]; then
+  echo "→ Initialising chezmoi from $DOTFILES_REPO..."
+  chezmoi init --apply "$DOTFILES_REPO"
+  echo "✓ Dotfiles applied"
+else
+  echo "→ Pulling latest dotfiles..."
+  chezmoi update
+  echo "✓ Dotfiles up to date"
+fi
+
+# Verify key managed files landed
+REQUIRED=(
+  ~/.zshrc
+  ~/.zsh/conf.d/00-core.zsh
+  ~/.zsh/conf.d/10-tools.zsh
+  ~/.zsh/conf.d/20-plugins.zsh
+  ~/.zsh/conf.d/30-completion.zsh
+  ~/.config/starship.toml
+  ~/.gnupg/gpg-agent.conf
+)
+
+echo "→ Verifying managed files..."
+MISSING=0
+for f in "${REQUIRED[@]}"; do
+  if [[ ! -f "$f" ]]; then
+    echo "  ⚠ Missing: $f"
+    MISSING=$((MISSING + 1))
+  fi
+done
+
+[[ $MISSING -eq 0 ]] && echo "✓ All managed files present" || echo "⚠ $MISSING file(s) missing — check chezmoi managed"
+"""
+
+# ── Git global config ─────────────────────────────────────────────────────────
+[tasks."bootstrap:git"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-populate from existing config or gh API as sensible defaults
+CURRENT_NAME=$(git config --global user.name 2>/dev/null || echo "")
+CURRENT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
+
+# Fall back to gh API if not set
+if [[ -z "$CURRENT_NAME" ]] && gh auth status &>/dev/null; then
+  CURRENT_NAME=$(gh api user --jq .name 2>/dev/null || echo "")
+fi
+if [[ -z "$CURRENT_EMAIL" ]] && gh auth status &>/dev/null; then
+  CURRENT_EMAIL=$(gh api user --jq '.email // "\\(.id)+\\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
+fi
+
+echo ""
+echo "── Git identity ─────────────────────────────"
+echo "  Press enter to accept the default shown in [brackets]"
+echo ""
+
+read -rp "  Name  [${CURRENT_NAME}]: " INPUT_NAME
+GIT_NAME="${INPUT_NAME:-$CURRENT_NAME}"
+
+read -rp "  Email [${CURRENT_EMAIL}]: " INPUT_EMAIL
+GIT_EMAIL="${INPUT_EMAIL:-$CURRENT_EMAIL}"
+
+[[ -z "$GIT_NAME" ]]  && echo "✗ Name cannot be empty"  && exit 1
+[[ -z "$GIT_EMAIL" ]] && echo "✗ Email cannot be empty" && exit 1
+
+git config --global user.name          "$GIT_NAME"
+git config --global user.email         "$GIT_EMAIL"
+git config --global init.defaultbranch main
+git config --global commit.gpgsign     true
+git config --global gpg.program        gpg
+
+# Wire gh credential helper
+gh auth setup-git 2>/dev/null || true
+
+echo ""
+echo "✓ Git configured"
+echo "  Name:  $GIT_NAME"
+echo "  Email: $GIT_EMAIL"
+echo ""
+echo "  ⚠ Set signing key after GPG key generation:"
+echo "    git config --global user.signingkey <KEY_ID>"
+"""
+description = "Configure git globals — prompts for identity, skips if already set"
+interactive = true
+
+# ── GPG agent ─────────────────────────────────────────────────────────────────
+[tasks."bootstrap:gpg"]
+description = "Restart gpg-agent to pick up pinentry config from chezmoi"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gpg-agent.conf is managed by chezmoi — just restart the agent
+gpgconf --kill gpg-agent
+echo "✓ gpg-agent restarted with pinentry-gtk-2 config"
+echo "  cache TTL: 8h / max 24h"
+"""
+
+# ── Shell setup ───────────────────────────────────────────────────────────────
+[tasks."bootstrap:shell"]
+description = "Set zsh as default shell and create required directories"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Required directories
+mkdir -p ~/.zsh/{plugins,completions,conf.d}
+echo "✓ ~/.zsh directory structure created"
+
+# Default shell
+if [[ "$SHELL" != "$(which zsh)" ]]; then
+  chsh -s "$(which zsh)"
+  echo "✓ Default shell set to zsh (takes effect on next login)"
+else
+  echo "  zsh already default shell"
+fi
+"""
+
+# ── zsh plugins ───────────────────────────────────────────────────────────────
+[tasks."bootstrap:plugins"]
+description = "Clone third-party zsh plugins into ~/.zsh/plugins"
+depends = ["bootstrap:shell"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+clone() {
+  local repo=$1 dest=$2
+  if [[ ! -d "$dest" ]]; then
+    git clone --depth 1 "$repo" "$dest"
+    echo "✓ $(basename $dest) cloned"
+  else
+    echo "  $(basename $dest) already present"
+  fi
+}
+
+clone https://github.com/Aloxaf/fzf-tab                    ~/.zsh/plugins/fzf-tab
+clone https://github.com/zsh-users/zsh-autosuggestions     ~/.zsh/plugins/zsh-autosuggestions
+clone https://github.com/zsh-users/zsh-syntax-highlighting ~/.zsh/plugins/zsh-syntax-highlighting
+"""
+
+# ── Shell completions ─────────────────────────────────────────────────────────
+[tasks."bootstrap:completions"]
+description = "Generate shell completions for all tools"
+depends = ["bootstrap:shell"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p ~/.zsh/completions
+
+mise completion zsh               > ~/.zsh/completions/_mise  && echo "✓ mise"
+gh   completion --shell zsh       > ~/.zsh/completions/_gh    && echo "✓ gh"
+atuin gen-completions --shell zsh > ~/.zsh/completions/_atuin && echo "✓ atuin"
+
+# tealdeer ships a static completion file — find it dynamically
+TLDR_DIR=$(mise where github:tealdeer-rs/tealdeer 2>/dev/null || echo "")
+if [[ -n "$TLDR_DIR" ]]; then
+  TLDR_COMP="$TLDR_DIR/completions/zsh_tealdeer"
+  [[ -f "$TLDR_COMP" ]] \
+    && cp "$TLDR_COMP" ~/.zsh/completions/_tldr && echo "✓ tldr" \
+    || echo "⚠ tldr completion file not found at $TLDR_COMP"
+fi
+
+echo "✓ All completions generated → ~/.zsh/completions/"
+"""
+
+# ── Syncthing ─────────────────────────────────────────────────────────────────
+[tasks."bootstrap:syncthing"]
+description = "Set up Syncthing folder structure, .stignore, and systemd service"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p ~/sync/dev ~/sync/scratch
+echo "✓ ~/sync structure created"
+
+if [[ ! -e ~/dev ]]; then
+  ln -s ~/sync/dev ~/dev
+  echo "✓ ~/dev → ~/sync/dev symlinked"
+else
+  echo "  ~/dev already exists"
+fi
+
+if [[ ! -f ~/sync/.stignore ]]; then
+  cat > ~/sync/.stignore << 'IGNORE'
+node_modules
+.pnpm-store
+.npm
+dist
+build
+.next
+.turbo
+.cache
+*.tsbuildinfo
+*.log
+*.sock
+*.pid
+.env.local
+.env.*.local
+.DS_Store
+Thumbs.db
+.idea
+*.swp
+IGNORE
+  echo "✓ .stignore written"
+else
+  echo "  .stignore already present"
+fi
+
+if systemctl --user is-enabled syncthing &>/dev/null; then
+  echo "  Syncthing already enabled"
+else
+  systemctl --user enable syncthing --now
+  echo "✓ Syncthing enabled via systemd"
+fi
+"""
+
+# ── Atuin ─────────────────────────────────────────────────────────────────────
+[tasks."bootstrap:atuin"]
+description = "Prompt for Atuin account setup (register / login / skip)"
+interactive = true
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+if atuin status &>/dev/null; then
+  echo "✓ Atuin already syncing"
+  exit 0
+fi
+
+echo ""
+echo "Atuin: shell history sync"
+echo "  1) Register new account"
+echo "  2) Login (account already exists)"
+echo "  3) Skip — local only"
+read -rp "  Choice [1/2/3]: " choice
+case "$choice" in
+  1) atuin register ;;
+  2) atuin login    ;;
+  *) echo "  Running local-only" ;;
+esac
+"""
+
+# ── Day-to-day operations ─────────────────────────────────────────────────────
+
+[tasks.update]
+description = "Update all mise tools, dotfiles, and regenerate completions"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+echo "→ Updating tools..."
+mise upgrade
+mise reshim
+
+echo "→ Pulling dotfiles..."
+chezmoi update
+
+echo "→ Regenerating completions..."
+mise run bootstrap:completions
+
+echo "→ Updating zsh plugins..."
+git -C ~/.zsh/plugins/fzf-tab                    pull --ff-only
+git -C ~/.zsh/plugins/zsh-autosuggestions        pull --ff-only
+git -C ~/.zsh/plugins/zsh-syntax-highlighting    pull --ff-only
+
+echo "✓ Everything up to date"
+"""
+
+[tasks.doctor]
+description = "Verify the environment is healthy"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+OK=0; WARN=0
+
+check() {
+  local label=$1; shift
+  if "$@" &>/dev/null 2>&1; then
+    echo "  ✓ $label"
+    OK=$((OK + 1))
+  else
+    echo "  ⚠ $label"
+    WARN=$((WARN + 1))
+  fi
+}
+
+echo ""
+echo "── Tools ────────────────────────────────"
+check "mise"     mise --version
+check "chezmoi"  chezmoi --version
+check "starship" starship --version
+check "fzf"      fzf --version
+check "zoxide"   zoxide --version
+check "atuin"    atuin --version
+check "eza"      eza --version
+check "bat"      bat --version
+check "gh"       gh --version
+check "pass"     pass --version
+check "tldr"     command -v tealdeer &>/dev/null
+
+echo ""
+echo "── Shell ────────────────────────────────"
+# Check /etc/passwd directly — $SHELL inside mise task reflects parent process not chsh
+check "zsh default shell"   grep -q "^fuzzy.*zsh$" /etc/passwd
+check "conf.d exists"       test -d "$HOME/.zsh/conf.d"
+check "plugins exist"       test -d "$HOME/.zsh/plugins/fzf-tab"
+check "completions exist"   test -f "$HOME/.zsh/completions/_mise"
+check "starship config"     test -f "$HOME/.config/starship.toml"
+
+echo ""
+echo "── Git & GPG ────────────────────────────"
+check "git name configured"    git config --global --get user.name
+check "git email configured"   git config --global --get user.email
+check "git signing enabled"    git config --global --get commit.gpgsign
+check "git signing key set"    git config --global --get user.signingkey
+check "gpg-agent running"      gpg-connect-agent /bye
+check "gh authenticated"       gh auth status
+
+echo ""
+echo "── Sync ─────────────────────────────────"
+check "syncthing running"   systemctl --user is-active syncthing
+check "~/dev symlink"       test -L "$HOME/dev"
+check "~/sync exists"       test -d "$HOME/sync"
+
+echo ""
+echo "── Dotfiles ─────────────────────────────"
+check "chezmoi no drift"    chezmoi verify
+
+echo ""
+echo "  $OK checks passed · $WARN warnings"
+echo ""
+"""
