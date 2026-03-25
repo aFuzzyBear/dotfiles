@@ -166,6 +166,7 @@ eval "$(~/.local/bin/mise activate bash)"
 info "Installing chezmoi via mise..."
 mise use -g chezmoi
 mise reshim
+eval "$(~/.local/bin/mise activate bash)" # re-activate to pick up chezmoi in PATH
 ok "chezmoi installed"
 
 if [[ "$SKIP_DOTFILES" == true ]]; then
