@@ -175,10 +175,10 @@ if [[ "$SKIP_DOTFILES" == true ]]; then
 else
   info "Applying dotfiles from $DOTFILES_REPO..."
   if [[ ! -d ~/.local/share/chezmoi/.git ]]; then
-    chezmoi init --apply "$DOTFILES_REPO"
+    mise x -- chezmoi init --apply "$DOTFILES_REPO"
   else
     warn "chezmoi already initialised — running update instead"
-    chezmoi update
+    mise x -- chezmoi update
   fi
   ok "Dotfiles applied"
 fi
