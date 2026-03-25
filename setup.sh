@@ -133,7 +133,7 @@ fi
 if ! gh auth status &>/dev/null; then
   info "Authenticating with GitHub..."
   echo "  A browser window will open — complete the auth flow there."
-  gh auth login --web -h github.com
+  gh auth login --web -h github.com -s admin:public_key
 fi
 ok "GitHub authenticated"
 
