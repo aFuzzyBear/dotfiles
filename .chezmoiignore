@@ -3,3 +3,29 @@ private_dot_gnupg/pubring.kbx
 private_dot_gnupg/trustdb.gpg
 private_dot_gnupg/private-keys-v1.d
 private_dot_gnupg/openpgp-revocs.d
+
+# Local state
+.zsh_history
+.zsh/zcompdump*
+
+# SSH keys and config
+private_dot_ssh/id_*
+private_dot_ssh/known_hosts
+private_dot_ssh/config.local
+
+# Package manager caches
+.cache
+.npm
+.pnpm-store
+
+# IDE and editor config
+.vscode/settings.json
+.idea/workspace.xml
+
+# Local environment files
+.env.local
+.env.*.local
+
+# OS-specific files
+.DS_Store
+Thumbs.db
