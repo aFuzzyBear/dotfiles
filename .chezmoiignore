@@ -51,3 +51,4 @@ Thumbs.db
 # ── Repo files — live in chezmoi source root, not in ~ ───────────────────────
 README.md
 setup.sh
+docs/
