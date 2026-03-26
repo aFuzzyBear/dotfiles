@@ -42,9 +42,8 @@ alias top='btop'
 #                  # that a blind alias will bite you eventually
 
 # ── tldr ─────────────────────────────────────────────────────────────────────
-# alias tldr='tealdeer'
-alias help='tealdeer'  # tldr is more concise than man
-
+alias help='tealdeer'
+alias tldr='tealdeer'   # muscle memory alias
 # ── Git ───────────────────────────────────────────────────────────────────────
 alias g='git'
 alias gs='git status'
