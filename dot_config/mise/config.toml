@@ -34,7 +34,6 @@ fd = "latest"
 node = "lts"
 pnpm = "latest"
 "github:tealdeer-rs/tealdeer" = "latest"
-"aqua:syncthing/syncthing" = "latest"
 
 # ── Bootstrap task graph ──────────────────────────────────────────────────────
 # Entry point called by bootstrap.sh after: mise install && mise reshim
@@ -43,13 +42,13 @@ pnpm = "latest"
 [tasks.bootstrap]
 description = "Full environment setup — run once after chezmoi apply on a fresh machine"
 depends = [
-    "bootstrap:dotfiles",
-    "bootstrap:gpg",
-    "bootstrap:shell",
-    "bootstrap:plugins",
-    "bootstrap:completions",
-    "bootstrap:syncthing",
-    "bootstrap:atuin",
+  "bootstrap:dotfiles",
+  "bootstrap:gpg",
+  "bootstrap:shell",
+  "bootstrap:plugins",
+  "bootstrap:completions",
+  "bootstrap:syncthing",
+  "bootstrap:atuin",
 ]
 run = """
 mise run bootstrap:git
