@@ -1,31 +1,53 @@
-# Never commit actual GPG key material
+# ── GPG — never commit key material ──────────────────────────────────────────
 private_dot_gnupg/pubring.kbx
 private_dot_gnupg/trustdb.gpg
 private_dot_gnupg/private-keys-v1.d
 private_dot_gnupg/openpgp-revocs.d
 
-# Local state
-.zsh_history
-.zsh/zcompdump*
-
-# SSH keys and config
+# ── SSH — never commit key material ──────────────────────────────────────────
 private_dot_ssh/id_*
 private_dot_ssh/known_hosts
 private_dot_ssh/config.local
 
-# Package manager caches
+# ── Credential stores and CLI keyrings ───────────────────────────────────────
+# Machine-specific auth state created by CLI tools. These are runtime artifacts,
+# not configuration — they must never roam via chezmoi or Syncthing.
+# Pattern: if a CLI tool creates a directory or file in ~ to store auth tokens,
+# it belongs here. Add entries as tools enter the stack, with the actual path
+# the tool creates (verify with `ls ~/` after first auth).
+#
+# Current:
+infisical-keyring                  # Infisical CLI fallback keyring (WSL/headless)
+#
+# Additional providers:
+.config/op                       # 1Password CLI
+.aws                             # AWS CLI credentials and config
+.config/gcloud                   # Google Cloud SDK auth state
+.azure                           # Azure CLI auth tokens
+.config/github-copilot           # GitHub Copilot CLI
+.kube/config                     # kubectl — contains cluster credentials
+
+# ── Shell state ───────────────────────────────────────────────────────────────
+.zsh_history
+.zsh/zcompdump*
+
+# ── Package manager caches ────────────────────────────────────────────────────
 .cache
 .npm
 .pnpm-store
 
-# IDE and editor config
+# ── IDE and editor ────────────────────────────────────────────────────────────
 .vscode/settings.json
 .idea/workspace.xml
 
-# Local environment files
+# ── Local environment files ───────────────────────────────────────────────────
 .env.local
 .env.*.local
 
-# OS-specific files
+# ── OS-specific ───────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# ── Repo files — live in chezmoi source root, not in ~ ───────────────────────
+README.md
+setup.sh
