@@ -44,7 +44,6 @@ pnpm = "latest"
 description = "Full environment setup — run once after chezmoi apply on a fresh machine"
 depends = [
     "bootstrap:dotfiles",
-    "bootstrap:git",
     "bootstrap:gpg",
     "bootstrap:shell",
     "bootstrap:plugins",
@@ -53,6 +52,7 @@ depends = [
     "bootstrap:atuin",
 ]
 run = """
+mise run bootstrap:git
 echo ''
 echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 echo '  Bootstrap complete'
@@ -90,7 +90,7 @@ fi
 # Verify key managed files landed
 REQUIRED=(
   ~/.zshrc
-  ~/.zsh/conf.d/00-core.zsh
+  ~/.zsh/conf.d/00-general.zsh
   ~/.zsh/conf.d/10-tools.zsh
   ~/.zsh/conf.d/20-plugins.zsh
   ~/.zsh/conf.d/30-completion.zsh
