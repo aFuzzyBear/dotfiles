@@ -16,7 +16,7 @@ _.file = "env.sh"
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 # Everything mise can manage lives here.
-# apt owns: zsh, gpg, build-essential, wslu, pinentry-gtk2, pass, syncthing
+# apt owns: zsh, gpg, build-essential, wslu, pinentry-gtk-2, pass, syncthing
 # Everything else: mise owns it.
 [tools]
 usage = "latest"
@@ -28,12 +28,12 @@ chezmoi = "latest"
 eza = "latest"
 bat = "latest"
 gh = "latest"
-jq = "latest"
-ripgrep = "latest"
-fd = "latest"
 node = "lts"
 pnpm = "latest"
 "github:tealdeer-rs/tealdeer" = "latest"
+# syncthing is intentionally NOT here — apt owns it, systemd owns the service.
+# Adding it via mise creates a second binary that conflicts with the systemd unit.
+# See: docs/runbook.md — Syncthing database lock issue
 
 # ── Bootstrap task graph ──────────────────────────────────────────────────────
 # Entry point called by bootstrap.sh after: mise install && mise reshim
@@ -43,6 +43,7 @@ pnpm = "latest"
 description = "Full environment setup — run once after chezmoi apply on a fresh machine"
 depends = [
   "bootstrap:dotfiles",
+  "bootstrap:git",
   "bootstrap:gpg",
   "bootstrap:shell",
   "bootstrap:plugins",
@@ -51,7 +52,6 @@ depends = [
   "bootstrap:atuin",
 ]
 run = """
-mise run bootstrap:git
 echo ''
 echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 echo '  Bootstrap complete'
@@ -89,7 +89,7 @@ fi
 # Verify key managed files landed
 REQUIRED=(
   ~/.zshrc
-  ~/.zsh/conf.d/00-general.zsh
+  ~/.zsh/conf.d/00-core.zsh
   ~/.zsh/conf.d/10-tools.zsh
   ~/.zsh/conf.d/20-plugins.zsh
   ~/.zsh/conf.d/30-completion.zsh
@@ -111,7 +111,7 @@ done
 
 # ── Git global config ─────────────────────────────────────────────────────────
 [tasks."bootstrap:git"]
-run = """
+run         = """
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -124,7 +124,7 @@ if [[ -z "$CURRENT_NAME" ]] && gh auth status &>/dev/null; then
   CURRENT_NAME=$(gh api user --jq .name 2>/dev/null || echo "")
 fi
 if [[ -z "$CURRENT_EMAIL" ]] && gh auth status &>/dev/null; then
-  CURRENT_EMAIL=$(gh api user --jq '.email // "\\(.id)+\\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
+  CURRENT_EMAIL=$(gh api user --jq '.email // "\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
 fi
 
 echo ""
@@ -157,8 +157,7 @@ echo "  Email: $GIT_EMAIL"
 echo ""
 echo "  ⚠ Set signing key after GPG key generation:"
 echo "    git config --global user.signingkey <KEY_ID>"
-"""
-description = "Configure git globals — prompts for identity, skips if already set"
+"""description = "Configure git globals — prompts for identity, skips if already set"
 interactive = true
 
 # ── GPG agent ─────────────────────────────────────────────────────────────────
@@ -187,7 +186,7 @@ echo "✓ ~/.zsh directory structure created"
 
 # Default shell
 if [[ "$SHELL" != "$(which zsh)" ]]; then
-  sudo usermod -s "$(which zsh)" "$USER"
+  chsh -s "$(which zsh)"
   echo "✓ Default shell set to zsh (takes effect on next login)"
 else
   echo "  zsh already default shell"
@@ -250,6 +249,21 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Kill any orphaned syncthing processes before starting via systemd.
+# Running syncthing --no-browser manually during setup leaves a process holding
+# a database lock. The systemd service will fail with "resource temporarily
+# unavailable" until the lock is cleared. See: docs/runbook.md
+if pgrep -x syncthing > /dev/null; then
+  echo "→ Stopping orphaned syncthing process..."
+  pkill -x syncthing || true
+  sleep 1
+  echo "✓ Orphaned process cleared"
+fi
+
+# Clear stale lock files if present
+find ~/.local/state/syncthing ~/.config/syncthing \
+  -name "*.lock" -delete 2>/dev/null || true
+
 mkdir -p ~/sync/dev ~/sync/scratch
 echo "✓ ~/sync structure created"
 
@@ -292,6 +306,14 @@ else
   systemctl --user enable syncthing --now
   echo "✓ Syncthing enabled via systemd"
 fi
+
+# Verify it actually started
+sleep 2
+if systemctl --user is-active syncthing &>/dev/null; then
+  echo "✓ Syncthing running"
+else
+  echo "⚠ Syncthing failed to start — run: journalctl --user -u syncthing -n 20"
+fi
 """
 
 # ── Atuin ─────────────────────────────────────────────────────────────────────
@@ -320,7 +342,49 @@ case "$choice" in
 esac
 """
 
-# ── Day-to-day operations ─────────────────────────────────────────────────────
+[tasks."syncthing:status"]
+description = "Check Syncthing service status and show recent logs"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo ""
+echo "── Syncthing status ─────────────────────────────"
+systemctl --user status syncthing --no-pager -l
+
+echo ""
+echo "── Recent logs ──────────────────────────────────"
+journalctl --user -u syncthing -n 20 --no-pager
+"""
+
+[tasks."syncthing:restart"]
+description = "Safely restart Syncthing — kills orphaned processes, clears locks, restarts service"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "→ Stopping Syncthing service..."
+systemctl --user stop syncthing 2>/dev/null || true
+
+echo "→ Killing any orphaned syncthing processes..."
+pkill -x syncthing 2>/dev/null || true
+sleep 1
+
+echo "→ Clearing stale lock files..."
+find ~/.local/state/syncthing ~/.config/syncthing \
+  -name "*.lock" -delete 2>/dev/null || true
+
+echo "→ Starting Syncthing service..."
+systemctl --user start syncthing
+sleep 2
+
+if systemctl --user is-active syncthing &>/dev/null; then
+  echo "✓ Syncthing running cleanly"
+else
+  echo "⚠ Syncthing failed to start"
+  journalctl --user -u syncthing -n 20 --no-pager
+fi
+"""
 
 [tasks.update]
 description = "Update all mise tools, dotfiles, and regenerate completions"
@@ -376,7 +440,7 @@ check "eza"      eza --version
 check "bat"      bat --version
 check "gh"       gh --version
 check "pass"     pass --version
-check "tldr"     command -v tealdeer &>/dev/null
+check "tldr"     command -v tldr
 
 echo ""
 echo "── Shell ────────────────────────────────"
