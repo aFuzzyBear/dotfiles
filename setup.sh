@@ -88,6 +88,8 @@ echo ""
 command -v apt &>/dev/null      || die "apt not found — Ubuntu/Debian only"
 
 # ── 1. Base packages ──────────────────────────────────────────────────────────
+# apt owns everything here. Rule: if it's needed before `mise install` runs,
+# or if it integrates with systemd, apt owns it — not mise.
 info "Installing base packages..."
 sudo apt update -q 
 sudo apt upgrade -y -q
@@ -111,6 +113,7 @@ sudo apt install -y \
 
 ok "Base packages installed"
 
+#  Ubuntu ships bat as `batcat` and fd as `fdfind` — normalise to expected names
 mkdir -p ~/.local/bin
 [[ -f /usr/bin/batcat ]] && ln -sf /usr/bin/batcat ~/.local/bin/bat && ok "bat symlinked"
 [[ -f /usr/bin/fdfind ]] && ln -sf /usr/bin/fdfind ~/.local/bin/fd  && ok "fd symlinked"
