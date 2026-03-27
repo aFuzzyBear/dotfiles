@@ -19,6 +19,7 @@ experimental = true
 [tools]
 usage = "latest"
 starship = "latest"
+fastfetch = "latest"
 fzf = "latest"
 zoxide = "latest"
 atuin = "latest"
@@ -45,6 +46,7 @@ depends = [
   "bootstrap:dotfiles",
   "bootstrap:gpg",
   "bootstrap:shell",
+  "bootstrap:identity",
   "bootstrap:plugins",
   "bootstrap:completions",
   "bootstrap:syncthing",
@@ -477,4 +479,22 @@ check "chezmoi no drift"    chezmoi verify
 echo ""
 echo "  $OK checks passed · $WARN warnings"
 echo ""
+"""
+
+[tasks."bootstrap:identity"]
+description = "Set FuzzyOS identity in /etc/os-release"
+depends = ["bootstrap:shell"]
+hide = true
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+if grep -q 'PRETTY_NAME="FuzzyOS"' /etc/os-release 2>/dev/null; then
+  echo "  FuzzyOS identity already set"
+  exit 0
+fi
+
+sudo sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="FuzzyOS"/' /etc/os-release
+sudo sed -i 's/^NAME=.*/NAME="FuzzyOS"/' /etc/os-release
+echo "✓ OS identity set to FuzzyOS"
 """
