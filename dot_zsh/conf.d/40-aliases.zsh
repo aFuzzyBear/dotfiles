@@ -19,7 +19,7 @@ fi
 # ── bat — cat with syntax highlighting ───────────────────────────────────────
 if command -v bat &>/dev/null; then
   alias cat='bat --paging=never'   # cat-like (no pager by default)
-  alias bат='bat'                  # with pager when you want it
+  # alias bat ='bat'                  # with pager when you want it
   export MANPAGER="sh -c 'col -bx | bat -l man -p'"  # pretty man pages
   export BAT_THEME="Catppuccin-mocha"                 # change to taste
 fi
@@ -27,6 +27,9 @@ fi
 # ── ripgrep ───────────────────────────────────────────────────────────────────
 if command -v rg &>/dev/null; then
   alias grep='rg'
+fi
+if command -v rga &>/dev/null; then
+  alias rga='rga --files-with-matches'  # faster than rg -l
 fi
 
 # ── fd ────────────────────────────────────────────────────────────────────────
