@@ -1,4 +1,3 @@
-
 # ── Completion paths ──────────────────────────────────────────────────────────
 fpath=(~/.zsh/completions $fpath)
 
@@ -21,19 +20,11 @@ zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'  # case-insensitive match
 
 # ── fzf-tab behaviour ─────────────────────────────────────────────────────────
 zstyle ':fzf-tab:*' switch-group '<' '>'
+zstyle ':fzf-tab:*' fzf-flags '--height=50%' '--layout=reverse' '--info=inline'
 
 # Fix: stop fzf-tab pre-filling the last completed word into the fzf query.
 # 'prefix' = use only what's actually typed so far as the search seed.
 zstyle ':fzf-tab:*' query-string prefix
-
-zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
-zstyle ':completion:*:descriptions' format '[%d]'
-zstyle ':completion:*:git-checkout:*' sort false
-zstyle ':completion:*' menu no
-zstyle ':fzf-tab:*' switch-group '<' '>'
-zstyle ':fzf-tab:*' fzf-flags '--height=50%' '--layout=reverse' '--info=inline'
-zstyle ':fzf-tab:*' query-string prefix
-zstyle ':fzf-tab:complete:cd:*' fzf-preview 'ls --color $realpath'
 
 # ── Previews ──────────────────────────────────────────────────────────────────
 # cd preview
@@ -42,4 +33,4 @@ zstyle ':fzf-tab:complete:cd:*' fzf-preview \
 
 # mise task preview — external script to avoid inline quote escaping hell
 zstyle ':fzf-tab:complete:mise:*' fzf-preview \
-  'bash ~/.zsh/plugins/ "$word"'
+  'bash ~/.zsh/mise-preview.sh "$word"'
