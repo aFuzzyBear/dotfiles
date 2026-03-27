@@ -194,16 +194,18 @@ set -euo pipefail
 mkdir -p ~/.zsh/{plugins,completions,conf.d}
 echo "✓ ~/.zsh directory structure created"
 
-# Default shell
-if [[ "$SHELL" != "$(which zsh)" ]]; then
-  chsh -s "$(which zsh)"
+# Default shell — use usermod not chsh
+# chsh requires PAM authentication which fails in non-interactive mise tasks
+ZSH_PATH="$(which zsh)"
+CURRENT_SHELL="$(getent passwd "$USER" | cut -d: -f7)"
+if [[ "$CURRENT_SHELL" != "$ZSH_PATH" ]]; then
+  sudo usermod -s "$ZSH_PATH" "$USER"
   echo "✓ Default shell set to zsh (takes effect on next login)"
 else
   echo "  zsh already default shell"
 fi
 """
 
-# ── zsh plugins ───────────────────────────────────────────────────────────────
 [tasks."bootstrap:plugins"]
 description = "Clone third-party zsh plugins into ~/.zsh/plugins"
 depends = ["bootstrap:shell"]
