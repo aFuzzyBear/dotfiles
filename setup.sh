@@ -108,6 +108,7 @@ sudo apt install -y \
   fd-find \
   ripgrep \
   btop
+
 ok "Base packages installed"
 
 mkdir -p ~/.local/bin
