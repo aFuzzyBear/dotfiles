@@ -6,17 +6,14 @@
 #   bootstrap.sh  → installs mise + chezmoi, applies dotfiles, calls mise run bootstrap
 #   [tools]       → every runtime and CLI tool, single source of truth
 #   [tasks]       → full bootstrap task graph + day-to-day operations
-#   [env]         → non-secret machine-level env vars (secrets → pass)
 
 [settings]
 experimental = true
 
-[env]
-_.file = "env.sh"
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 # Everything mise can manage lives here.
-# apt owns: zsh, gpg, build-essential, wslu, pinentry-gtk-2, pass, syncthing
+# apt owns: zsh, gpg, build-essential, wslu, pinentry-gtk2, pass, syncthing
 # Everything else: mise owns it.
 [tools]
 usage = "latest"
@@ -43,7 +40,6 @@ pnpm = "latest"
 description = "Full environment setup — run once after chezmoi apply on a fresh machine"
 depends = [
   "bootstrap:dotfiles",
-  "bootstrap:git",
   "bootstrap:gpg",
   "bootstrap:shell",
   "bootstrap:plugins",
@@ -52,6 +48,8 @@ depends = [
   "bootstrap:atuin",
 ]
 run = """
+mise run "bootstrap:git"
+mise run "bootstrap:
 echo ''
 echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 echo '  Bootstrap complete'
@@ -69,6 +67,7 @@ echo ''
 
 # ── Dotfiles ──────────────────────────────────────────────────────────────────
 [tasks."bootstrap:dotfiles"]
+
 description = "Apply chezmoi dotfiles and verify managed files are in place"
 run = """
 #!/usr/bin/env bash
@@ -111,7 +110,7 @@ done
 
 # ── Git global config ─────────────────────────────────────────────────────────
 [tasks."bootstrap:git"]
-run         = """
+run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -124,7 +123,7 @@ if [[ -z "$CURRENT_NAME" ]] && gh auth status &>/dev/null; then
   CURRENT_NAME=$(gh api user --jq .name 2>/dev/null || echo "")
 fi
 if [[ -z "$CURRENT_EMAIL" ]] && gh auth status &>/dev/null; then
-  CURRENT_EMAIL=$(gh api user --jq '.email // "\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
+  CURRENT_EMAIL=$(gh api user --jq '.email // "\\(.id)+\\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
 fi
 
 echo ""
@@ -157,7 +156,8 @@ echo "  Email: $GIT_EMAIL"
 echo ""
 echo "  ⚠ Set signing key after GPG key generation:"
 echo "    git config --global user.signingkey <KEY_ID>"
-"""description = "Configure git globals — prompts for identity, skips if already set"
+"""
+description = "Configure git globals — prompts for identity, skips if already set"
 interactive = true
 
 # ── GPG agent ─────────────────────────────────────────────────────────────────
@@ -169,7 +169,7 @@ set -euo pipefail
 
 # gpg-agent.conf is managed by chezmoi — just restart the agent
 gpgconf --kill gpg-agent
-echo "✓ gpg-agent restarted with pinentry-gtk-2 config"
+echo "✓ gpg-agent restarted with pinentry-gtk2 config"
 echo "  cache TTL: 8h / max 24h"
 """
 
@@ -474,3 +474,6 @@ echo ""
 echo "  $OK checks passed · $WARN warnings"
 echo ""
 """
+
+# [tasks.jcat]
+# run = "./mise-tasks/jcat --pretty"
