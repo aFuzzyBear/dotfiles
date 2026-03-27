@@ -56,7 +56,7 @@ sudo apt install -y \
   build-essential \ # gcc/make — native addons, building from source
   ca-certificates \ # TLS root certs
   wslu \            # WSL utilities — wslview opens URLs in Windows browser
-  pinentry-gtk-2 \  # GPG passphrase GUI (WSL has no TTY pinentry by default)
+  pinentry-gtk2 \  # GPG passphrase GUI (WSL has no TTY pinentry by default)
   syncthing \       # P2P file sync
   pass \            # GPG-encrypted credential store
   bat \             # better cat
@@ -122,7 +122,7 @@ gpg --full-generate-key
 
 ```sh
 cat > ~/.gnupg/gpg-agent.conf << 'EOF'
-pinentry-program /usr/bin/pinentry-gtk-2
+pinentry-program /usr/bin/pinentry-gtk2
 default-cache-ttl 28800
 max-cache-ttl 86400
 EOF
@@ -205,7 +205,7 @@ git add . && git commit -m "feat: ..." && git push
   dot_zshrc
   dot_zsh/
     conf.d/
-      00-core.zsh
+      00-general.zsh
       10-tools.zsh
       20-plugins.zsh
       30-completion.zsh
@@ -270,7 +270,7 @@ chsh -s $(which zsh)
 ```
 ~/.zshrc                    # entry point — loads conf.d, VSCode integration
 ~/.zsh/conf.d/
-  00-core.zsh               # compinit, emacs keybindings, GPG_TTY
+  00-general.zsh               # compinit, emacs keybindings, GPG_TTY
   10-tools.zsh              # mise, starship, fzf, zoxide, atuin inits
   20-plugins.zsh            # fzf-tab, autosuggestions, syntax-highlighting
   30-completion.zsh         # fzf-tab behaviour, zstyle config
