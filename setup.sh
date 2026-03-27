@@ -89,7 +89,8 @@ command -v apt &>/dev/null      || die "apt not found — Ubuntu/Debian only"
 
 # ── 1. Base packages ──────────────────────────────────────────────────────────
 info "Installing base packages..."
-sudo apt update -q
+sudo apt update -q 
+sudo apt upgrade -y -q
 sudo apt install -y \
   curl \
   git \
