@@ -10,11 +10,12 @@
 [settings]
 experimental = true
 
-
 # ── Tools ─────────────────────────────────────────────────────────────────────
-# Everything mise can manage lives here.
-# apt owns: zsh, gpg, build-essential, wslu, pinentry-gtk2, pass, syncthing
-# Everything else: mise owns it.
+# apt owns bootstrap-time and system-integrated tools:
+#   jq, bat (batcat), fd-find, ripgrep, btop, syncthing, pass, wslu, pinentry-gtk2
+#
+# mise owns everything else — installed after chezmoi apply materialises this file.
+# Rule: if it's needed before `mise install` runs, apt owns it.
 [tools]
 usage = "latest"
 starship = "latest"
@@ -23,11 +24,13 @@ zoxide = "latest"
 atuin = "latest"
 chezmoi = "latest"
 eza = "latest"
-bat = "latest"
 gh = "latest"
 node = "lts"
 pnpm = "latest"
 "github:tealdeer-rs/tealdeer" = "latest"
+# ripgrep-all (rga) — wraps rg to search PDFs, zip, etc. Distinct from ripgrep.
+# rg itself is provided by apt above.
+"ripgrep-all" = "latest"
 # syncthing is intentionally NOT here — apt owns it, systemd owns the service.
 # Adding it via mise creates a second binary that conflicts with the systemd unit.
 # See: docs/runbook.md — Syncthing database lock issue
@@ -40,26 +43,33 @@ pnpm = "latest"
 description = "Full environment setup — run once after chezmoi apply on a fresh machine"
 depends = [
   "bootstrap:dotfiles",
-  "bootstrap:gpg",
   "bootstrap:shell",
   "bootstrap:plugins",
   "bootstrap:completions",
   "bootstrap:syncthing",
-  "bootstrap:atuin",
 ]
+
 run = """
+#!/usr/bin/env bash
+set -euo pipefail
+# Interactive tasks run sequentially here — they need TTY access
+# depends[] runs in parallel and swallows interactive prompts
+# Restart gpg-agent to pick up pinentry config before any GPG operations
+mise run "bootstrap:gpg" 
+# Configure git globals (name, email, signing) — prompts for input, skips if already set
 mise run "bootstrap:git"
-mise run "bootstrap:
+# Prompt for Atuin setup (register / login / skip)
+mise run "bootstrap:atuin"
 echo ''
-echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-echo '  Bootstrap complete'
-echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+echo '  🐻🥳🔥 FuzzyOS Bootstrap complete 🔥🥳🐻 '
+echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 echo ''
 echo '  Remaining manual steps:'
 echo '  1. Generate GPG key:         gpg --full-generate-key'
 echo '  2. Add to GitHub:            gpg --armor --export <KEY_ID>'
 echo '  3. Init pass store:          pass init <KEY_ID>'
-echo '  4. Store credentials:        pass insert infisical/$(hostname)/client-id'
+echo '  4. Store credentials:        pass insert infisical/client-id && pass insert infisical/client-secret'
 echo '  5. Pair Syncthing:           http://localhost:8384'
 echo '  6. Launch:                   exec zsh'
 echo ''
@@ -88,7 +98,7 @@ fi
 # Verify key managed files landed
 REQUIRED=(
   ~/.zshrc
-  ~/.zsh/conf.d/00-core.zsh
+  ~/.zsh/conf.d/00-general.zsh
   ~/.zsh/conf.d/10-tools.zsh
   ~/.zsh/conf.d/20-plugins.zsh
   ~/.zsh/conf.d/30-completion.zsh
@@ -474,6 +484,3 @@ echo ""
 echo "  $OK checks passed · $WARN warnings"
 echo ""
 """
-
-# [tasks.jcat]
-# run = "./mise-tasks/jcat --pretty"
