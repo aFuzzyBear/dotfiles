@@ -16,7 +16,7 @@ minimizing our worries and your strife —
 the bear necessities of a fuzzy pipeline
 come to you.”**
 
-> **Platform scope:** WSL Ubuntu 24.04 LTS. The shell layer (starship, fzf-tab, zoxide, atuin, mise, chezmoi) is fully portable and runs on macOS unchanged. The system bootstrap (apt, pinentry-gtk-2, wslu, systemd) is Ubuntu-specific and would need a Darwin branch. Known future direction — contributions welcome.
+> **Platform scope:** WSL Ubuntu 24.04 LTS. The shell layer (starship, fzf-tab, zoxide, atuin, mise, chezmoi) is fully portable and runs on macOS unchanged. The system bootstrap (apt, pinentry-gtk2, wslu, systemd) is Ubuntu-specific and would need a Darwin branch. Known future direction — contributions welcome.
 
 ---
 
@@ -70,7 +70,7 @@ The principle: no layer reaches into another's domain. `pass` holds credentials,
 ```
 setup.sh
 │
-├── apt           base packages (zsh, gpg, wslu, pinentry-gtk-2, pass, syncthing)
+├── apt           base packages (zsh, gpg, wslu, pinentry-gtk2, pass, syncthing)
 ├── gh            GitHub auth + SSH key generation
 ├── mise          tool manager — the last thing installed manually
 ├── chezmoi       init --apply → materialises ~/.config/mise/config.toml
@@ -172,7 +172,7 @@ Numbered files under `~/.zsh/conf.d/` — explicit load order, single responsibi
   config.toml                  # global tools + task graph
   env.sh                       # machine-level env (non-secret values only)
 ~/.config/starship.toml        # prompt layout and styling
-~/.gnupg/gpg-agent.conf        # pinentry-gtk-2, 8hr / 24hr cache TTL
+~/.gnupg/gpg-agent.conf        # pinentry-gtk2, 8hr / 24hr cache TTL
 ~/.password-store/             # pass store — GPG encrypted, NOT committed
 ```
 
