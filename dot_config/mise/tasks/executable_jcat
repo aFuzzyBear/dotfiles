@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+#MISE description="Filter stdin file paths into a structured JSON array with contents and errors"
+#MISE dir="{{cwd}}"
+#USAGE flag "-p --pretty" help="Enable pretty printing of the JSON output"
+
+# JCAT — command line filter
+# Reads file paths from stdin, emits a structured JSON array describing
+# file contents and any access errors. Safely escapes all data via jq.
+#
+# Usage:
+#   find . -type f | jcat -p
+#   tree -if --noreport | jcat
+#   git ls-files | jcat
+
+set -euo pipefail
+
+PRETTY="${usage_pretty:-false}"
+
+escape_json() {
+    jq -Rn --arg s "$1" '$s'
+}
+
+process_file() {
+    local file_path="$1"
+
+    # skip directories silently
+    if [[ -d "$file_path" ]]; then
+        return 0
+    fi
+
+    if [[ -f "$file_path" && -r "$file_path" ]]; then
+        local content escaped_path escaped_content
+        content=$(<"$file_path")
+        escaped_path=$(escape_json "$file_path")
+        escaped_content=$(escape_json "$content")
+        echo "{\"path\": $escaped_path, \"content\": $escaped_content}"
+    else
+        local error_message="Cannot read file"
+        if [[ ! -e "$file_path" ]]; then
+            error_message="File does not exist"
+        elif [[ ! -r "$file_path" ]]; then
+            error_message="File is not readable"
+        fi
+        local escaped_path escaped_error
+        escaped_path=$(escape_json "$file_path")
+        escaped_error=$(escape_json "$error_message")
+        echo "{\"path\": $escaped_path, \"error\": $escaped_error}"
+    fi
+}
+
+main() {
+    local json_output
+    json_output=$(while IFS= read -r line; do
+        [[ -n "$line" ]] && process_file "$line"
+    done | jq -s .)
+
+    if [[ "$PRETTY" == "true" ]]; then
+        echo "$json_output" | jq .
+    else
+        echo "$json_output"
+    fi
+}
+
+main "$@"
