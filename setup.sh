@@ -201,20 +201,21 @@ else
   warn "No ~/.config/mise/config.toml found — skipping mise install"
   warn "Add tools with: mise use -g <tool>"
 fi
+
+
 # ── 8. Bootstrap task graph ───────────────────────────────────────────────────
 if mise tasks 2>/dev/null | grep -q "^bootstrap"; then
   info "Running bootstrap task graph..."
   mise run bootstrap
 
-  # Interactive tasks run here — directly from setup.sh where TTY is guaranteed.
-  # These cannot be called via nested `mise run` inside a task run block.
   info "Configuring git identity..."
-  mise run bootstrap:git
+  mise run bootstrap:git < /dev/tty
 
   info "Setting up Atuin..."
-  mise run bootstrap:atuin
+  mise run bootstrap:atuin < /dev/tty
 else
   warn "No bootstrap task found — skipping"
+  warn "If your dotfiles define a bootstrap task, run: mise run bootstrap"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
