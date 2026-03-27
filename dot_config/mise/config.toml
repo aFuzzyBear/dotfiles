@@ -43,23 +43,15 @@ pnpm = "latest"
 description = "Full environment setup — run once after chezmoi apply on a fresh machine"
 depends = [
   "bootstrap:dotfiles",
+  "bootstrap:gpg",
   "bootstrap:shell",
   "bootstrap:plugins",
   "bootstrap:completions",
   "bootstrap:syncthing",
 ]
-
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-# Interactive tasks run sequentially here — they need TTY access
-# depends[] runs in parallel and swallows interactive prompts
-# Restart gpg-agent to pick up pinentry config before any GPG operations
-mise run "bootstrap:gpg" 
-# Configure git globals (name, email, signing) — prompts for input, skips if already set
-mise run "bootstrap:git"
-# Prompt for Atuin setup (register / login / skip)
-mise run "bootstrap:atuin"
 echo ''
 echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 echo '  🐻🥳🔥 FuzzyOS Bootstrap complete 🔥🥳🐻 '
@@ -69,7 +61,7 @@ echo '  Remaining manual steps:'
 echo '  1. Generate GPG key:         gpg --full-generate-key'
 echo '  2. Add to GitHub:            gpg --armor --export <KEY_ID>'
 echo '  3. Init pass store:          pass init <KEY_ID>'
-echo '  4. Store credentials:        pass insert infisical/client-id && pass insert infisical/client-secret'
+echo '  4. Store credentials:        pass insert infisical/client-id'
 echo '  5. Pair Syncthing:           http://localhost:8384'
 echo '  6. Launch:                   exec zsh'
 echo ''
