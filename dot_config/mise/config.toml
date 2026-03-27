@@ -257,14 +257,15 @@ set -euo pipefail
 # Running syncthing --no-browser manually during setup leaves a process holding
 # a database lock. The systemd service will fail with "resource temporarily
 # unavailable" until the lock is cleared. See: docs/runbook.md
+# Kill orphaned process if present
 if pgrep -x syncthing > /dev/null; then
-  echo "→ Stopping orphaned syncthing process..."
+  echo "→ Stopping syncthing process..."
   pkill -x syncthing || true
   sleep 1
-  echo "✓ Orphaned process cleared"
+  echo "✓ Process cleared"
 fi
 
-# Clear stale lock files if present
+# Clear stale lock files
 find ~/.local/state/syncthing ~/.config/syncthing \
   -name "*.lock" -delete 2>/dev/null || true
 
@@ -282,7 +283,6 @@ if [[ ! -f ~/sync/.stignore ]]; then
   cat > ~/sync/.stignore << 'IGNORE'
 node_modules
 .pnpm-store
-.npm
 dist
 build
 .next
@@ -295,7 +295,6 @@ build
 .env.local
 .env.*.local
 .DS_Store
-Thumbs.db
 .idea
 *.swp
 IGNORE
@@ -304,15 +303,16 @@ else
   echo "  .stignore already present"
 fi
 
+# Systemd is always the source of truth for the service lifecycle
 if systemctl --user is-enabled syncthing &>/dev/null; then
-  echo "  Syncthing already enabled"
+  systemctl --user restart syncthing
+  echo "→ Restarted via systemd"
 else
   systemctl --user enable syncthing --now
   echo "✓ Syncthing enabled via systemd"
 fi
 
-# Verify it actually started
-sleep 2
+sleep 3
 if systemctl --user is-active syncthing &>/dev/null; then
   echo "✓ Syncthing running"
 else
