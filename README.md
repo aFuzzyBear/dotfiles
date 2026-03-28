@@ -8,13 +8,7 @@ One command. Blank machine to full working environment.
 curl -sSL https://raw.githubusercontent.com/aFuzzyBear/dotfiles/main/setup.sh | bash
 ```
 
-> 🐻 **“Just the bear necessities,
-the simple fuzzy dev‑remedies —
-no tribes with their knowledge lurking in the shadows,
-Everything that a bear would need, fully declared and versioned,
-minimizing our worries and your strife —
-the bear necessities of a fuzzy pipeline
-come to you.”**
+> 🐻 **“Just the bear necessities,those simple developer remedies, That make you forgot about your worries and your strife...Whatever you are buildinging, to wherever you roam,Everything that a bear would need, fully declared and versioned, ready everytime you come home... Thats why a bear can rest at ease, with all the tools I need, and just enjoy the fuzzy way of life.”**
 
 > **Platform scope:** WSL Ubuntu 24.04 LTS. The shell layer (starship, fzf-tab, zoxide, atuin, mise, chezmoi) is fully portable and runs on macOS unchanged. The system bootstrap (apt, pinentry-gtk2, wslu, systemd) is Ubuntu-specific and would need a Darwin branch. Known future direction — contributions welcome.
 
@@ -22,7 +16,7 @@ come to you.”**
 
 ## Usage
 
-`setup.sh` is designed to be reusable — not just for this machine. It takes your dotfiles repo as an argument, or can run bare if you want to bring your own.
+`setup.sh` is designed to be reusable. It takes your dotfiles repo as an argument, or can run bare if you want to bring your own.
 
 ```sh
 # Default — applies aFuzzyBear dotfiles (fuzzybook machines)
