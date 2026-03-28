@@ -41,7 +41,7 @@ mise run bootstrap                  # run your task graph (if defined)
 
 ---
 
-## How it thinks
+## How it operates
 
 Every layer owns exactly one concern and respects the boundary of the layers around it. When something breaks, you know immediately whose job it is.
 
