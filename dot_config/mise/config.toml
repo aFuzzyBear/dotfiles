@@ -28,6 +28,7 @@ eza = "latest"
 gh = "latest"
 node = "lts"
 pnpm = "latest"
+jq = "latest"
 "github:tealdeer-rs/tealdeer" = "latest"
 # ripgrep-all (rga) — wraps rg to search PDFs, zip, etc. Distinct from ripgrep.
 # rg itself is provided by apt above.
@@ -281,29 +282,9 @@ else
   echo "  ~/dev already exists"
 fi
 
-if [[ ! -f ~/sync/.stignore ]]; then
-  cat > ~/sync/.stignore << 'IGNORE'
-node_modules
-.pnpm-store
-dist
-build
-.next
-.turbo
-.cache
-*.tsbuildinfo
-*.log
-*.sock
-*.pid
-.env.local
-.env.*.local
-.DS_Store
-.idea
-*.swp
-IGNORE
-  echo "✓ .stignore written"
-else
-  echo "  .stignore already present"
-fi
+[[ -f ~/sync/.stignore ]] \
+  && echo "✓ .stignore present (chezmoi-managed)" \
+  || echo "⚠ .stignore missing — run czap"
 
 # Systemd is always the source of truth for the service lifecycle
 if systemctl --user is-enabled syncthing &>/dev/null; then

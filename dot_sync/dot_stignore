@@ -1,0 +1,64 @@
+# ── Syncthing ignore rules for ~/sync/ ───────────────────────────────────────
+# Managed by chezmoi — edit via: czedit ~/sync/.stignore
+# Applied by Syncthing on all peers — changes here sync automatically.
+#
+# Syntax: https://docs.syncthing.net/users/ignoring.html
+# Patterns are anchored to the root of the synced folder (~/sync/).
+# Prefix with / to anchor to root only. No prefix matches anywhere in tree.
+
+# ── Node / JS ────────────────────────────────────────────────────────────────
+node_modules
+.pnpm-store
+.npm
+.yarn
+.yarn-integrity
+
+# ── Build artefacts ──────────────────────────────────────────────────────────
+dist
+build
+out
+.next
+.nuxt
+.turbo
+.cache
+*.tsbuildinfo
+
+# ── Logs & sockets ───────────────────────────────────────────────────────────
+*.log
+*.sock
+*.pid
+logs
+
+# ── Secrets & local env ──────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ── OS cruft ─────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# ── Editor state ─────────────────────────────────────────────────────────────
+.idea
+.vscode/extensions
+.vscode/.roamingprofile
+*.swp
+*.swo
+*~
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+*.tar
+*.img
+
+# ── Syncthing internals (never sync these) ───────────────────────────────────
+.stfolder
+.stversions
+.stignore
