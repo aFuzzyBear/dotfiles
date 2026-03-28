@@ -56,7 +56,7 @@ sudo apt install -y \
   build-essential \ # gcc/make — native addons, building from source
   ca-certificates \ # TLS root certs
   wslu \            # WSL utilities — wslview opens URLs in Windows browser
-  pinentry-gtk2 \  # GPG passphrase GUI (WSL has no TTY pinentry by default)
+  pinentry-gtk-2 \  # GPG passphrase GUI (WSL has no TTY pinentry by default)
   syncthing \       # P2P file sync
   pass \            # GPG-encrypted credential store
   bat \             # better cat
@@ -122,7 +122,7 @@ gpg --full-generate-key
 
 ```sh
 cat > ~/.gnupg/gpg-agent.conf << 'EOF'
-pinentry-program /usr/bin/pinentry-gtk2
+pinentry-program /usr/bin/pinentry-gtk-2
 default-cache-ttl 28800
 max-cache-ttl 86400
 EOF

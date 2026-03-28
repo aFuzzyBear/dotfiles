@@ -12,7 +12,7 @@ experimental = true
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 # apt owns bootstrap-time and system-integrated tools:
-#   jq, bat (batcat), fd-find, ripgrep, btop, syncthing, pass, wslu, pinentry-gtk2
+#   jq, bat (batcat), fd-find, ripgrep, btop, syncthing, pass, wslu, pinentry-gtk-2
 #
 # mise owns everything else — installed after chezmoi apply materialises this file.
 # Rule: if it's needed before `mise install` runs, apt owns it.
@@ -173,7 +173,7 @@ set -euo pipefail
 
 # gpg-agent.conf is managed by chezmoi — just restart the agent
 gpgconf --kill gpg-agent
-echo "✓ gpg-agent restarted with pinentry-gtk2 config"
+echo "✓ gpg-agent restarted with pinentry-gtk-2 config"
 echo "  cache TTL: 8h / max 24h"
 """
 
