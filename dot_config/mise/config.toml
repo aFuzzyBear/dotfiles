@@ -282,9 +282,32 @@ else
   echo "  ~/dev already exists"
 fi
 
-[[ -f ~/sync/.stignore ]] \
-  && echo "✓ .stignore present (chezmoi-managed)" \
-  || echo "⚠ .stignore missing — run czap"
+# Write .stignore if not present — not chezmoi managed, lives in ~/sync/
+if [[ ! -f ~/sync/.stignore ]]; then
+  cat > ~/sync/.stignore << 'IGNORE'
+node_modules
+.pnpm-store
+.npm
+dist
+build
+.next
+.turbo
+.cache
+*.tsbuildinfo
+*.log
+*.sock
+*.pid
+.env.local
+.env.*.local
+.DS_Store
+Thumbs.db
+.idea
+*.swp
+IGNORE
+  echo "✓ .stignore written"
+else
+  echo "  .stignore already present"
+fi
 
 # Systemd is always the source of truth for the service lifecycle
 if systemctl --user is-enabled syncthing &>/dev/null; then
