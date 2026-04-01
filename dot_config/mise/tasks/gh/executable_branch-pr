@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#MISE description="View the PR for the current (or specified) branch"
+#MISE alias="ghbp"
+#MISE dir="{{cwd}}"
+#USAGE flag "--json" help="Output PR as JSON"
+#USAGE flag "--branch <branch>" help="Target branch (defaults to current)"
+set -euo pipefail
+
+GH_JSON_FIELDS="number,title,body,state,isDraft,author,assignees,reviewRequests,reviews,labels,milestone,headRefName,baseRefName,mergeStateStatus,statusCheckRollup,url,createdAt,updatedAt,closedAt,mergedAt"
+
+# ──────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────
+
+current_branch() {
+  git rev-parse --abbrev-ref HEAD 2>/dev/null || {
+    echo "error: not inside a git repository" >&2
+    exit 1
+  }
+}
+
+find_pr_number() {
+  local branch="$1"
+  local number
+  number=$(gh pr list --head "$branch" --json number --jq '.[0].number // empty')
+  if [[ -z "$number" ]]; then
+    echo "error: no open PR found for branch '$branch'" >&2
+    exit 1
+  fi
+  echo "$number"
+}
+
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
+
+main() {
+  local json=false
+  local branch=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)         json=true;   shift ;;
+      --branch)       branch="$2"; shift 2 ;;
+      --branch=*)     branch="${1#--branch=}"; shift ;;
+      -*) echo "error: unknown flag: '$1'" >&2; exit 1 ;;
+      *)  echo "error: unexpected argument: '$1'" >&2; exit 1 ;;
+    esac
+  done
+
+  if [[ -z "$branch" ]]; then
+    branch="$(current_branch)"
+  fi
+
+  if [[ "$branch" == "main" || "$branch" == "master" ]]; then
+    echo "error: branch '$branch' — did you mean to specify one with --branch?" >&2
+    exit 1
+  fi
+
+  local pr_number
+  pr_number="$(find_pr_number "$branch")"
+
+  if [[ "$json" == "true" ]]; then
+    gh pr view "$pr_number" --json "$GH_JSON_FIELDS"
+  else
+    printf "\033[1;35m===== PR #%s (%s) =====\033[0m\n" "$pr_number" "$branch"
+    gh pr view "$pr_number"
+    echo
+  fi
+}
+
+main "$@"
