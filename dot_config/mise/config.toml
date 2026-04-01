@@ -237,6 +237,10 @@ mkdir -p ~/.zsh/completions
 mise completion zsh               > ~/.zsh/completions/_mise  && echo "✓ mise"
 gh   completion --shell zsh       > ~/.zsh/completions/_gh    && echo "✓ gh"
 atuin gen-completions --shell zsh > ~/.zsh/completions/_atuin && echo "✓ atuin"
+pnpm completion zsh               > ~/.zsh/completions/_pnpm  && echo "✓ pnpm"
+npm completion                    > "~/.zsh/completions/_npm"   && echo "✓ npm"
+docker completion zsh             > "~/.zsh/completions/_docker" && echo "✓ docker"
+docker compose completion zsh     > "~/.zsh/completions/_docker-compose" && echo "✓ docker compose"
 
 # tealdeer ships a static completion file — find it dynamically
 TLDR_DIR=$(mise where github:tealdeer-rs/tealdeer 2>/dev/null || echo "")
