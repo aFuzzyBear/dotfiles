@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+#MISE description="Build a dependency graph from issue Blocked-by/Blocks relationships"
+#MISE alias="ghbl"
+#MISE dir="{{cwd}}"
+#USAGE arg "[selector]" help="Issue number (7), range (10-12), or comma list (1,5,10-12,99)"
+#USAGE flag "--pretty" help="Human-readable tree instead of JSON"
+set -euo pipefail
+
+GH_JSON_FIELDS="number,title,state,url,milestone,labels,body"
+
+# ──────────────────────────────────────────────
+# Selector parsing (same as gh-issues/gh-prs)
+# ──────────────────────────────────────────────
+
+expand_range() {
+  local range="$1"
+  local start="${range%-*}"
+  local end="${range#*-}"
+  for ((i = start; i <= end; i++)); do
+    issues+=("$i")
+  done
+}
+
+parse_selector() {
+  local input="$1"
+  IFS=',' read -r -a parts <<< "$input"
+  for part in "${parts[@]}"; do
+    if [[ "$part" =~ ^[0-9]+$ ]]; then
+      issues+=("$part")
+    elif [[ "$part" =~ ^[0-9]+-[0-9]+$ ]]; then
+      expand_range "$part"
+    else
+      echo "error: invalid selector token: '$part'" >&2
+      exit 1
+    fi
+  done
+}
+
+dedup_sort() {
+  if [[ ${#issues[@]} -eq 0 ]]; then
+    return
+  fi
+  mapfile -t issues < <(printf "%s\n" "${issues[@]}" | sort -n | uniq)
+}
+
+# ──────────────────────────────────────────────
+# Graph building
+# ──────────────────────────────────────────────
+
+build_graph() {
+  local issues_json="$1"
+
+  # Scan body text for "Blocked by: #N" and "Blocks: #N" lines.
+  # Uses a negative lookahead to skip dotted sub-issue notation (#2.2 etc)
+  # since those are logical refs, not real GitHub issue numbers.
+  jq '
+    map({
+      number:    .number,
+      title:     .title,
+      state:     .state,
+      url:       .url,
+      milestone: (.milestone.title // null),
+      labels:    [.labels[].name],
+      blockedBy: (
+        [ .body | scan("(?i)blocked by[^\n]*") | scan("#[0-9]+") | ltrimstr("#") | tonumber ]
+        | unique | sort
+      ),
+      blocks: (
+        [ .body | scan("(?i)\\bblocks[^\n]*") | scan("#[0-9]+") | ltrimstr("#") | tonumber ]
+        | unique | sort
+      )
+    })
+  ' <<< "$issues_json"
+}
+
+print_pretty() {
+  local graph_json="$1"
+
+  echo "$graph_json" | jq -r '
+    .[] |
+    "\u001b[1;36m#\(.number)\u001b[0m  \(.title)" +
+    (if (.milestone != null) then "  \u001b[2m[\(.milestone)]\u001b[0m" else "" end),
+    (if (.blockedBy | length) > 0
+     then "  \u001b[33m⬆ blocked by:\u001b[0m  " + (.blockedBy | map("#\(.)") | join(", "))
+     else empty end),
+    (if (.blocks | length) > 0
+     then "  \u001b[32m⬇ blocks:\u001b[0m      " + (.blocks | map("#\(.)") | join(", "))
+     else empty end),
+    ""
+  '
+}
+
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
+
+main() {
+  local selector=""
+  local pretty=false
+
+  for arg in "$@"; do
+    case "$arg" in
+      --pretty) pretty=true ;;
+      -*) echo "error: unknown flag: '$arg'" >&2; exit 1 ;;
+      *)  selector="$arg" ;;
+    esac
+  done
+
+  issues=()
+
+  if [[ -z "$selector" ]]; then
+    mapfile -t issues < <(gh issue list --json number --jq '.[].number')
+  else
+    parse_selector "$selector"
+  fi
+
+  dedup_sort
+
+  if [[ ${#issues[@]} -eq 0 ]]; then
+    echo "No issues found." >&2
+    exit 0
+  fi
+
+  local issues_json
+  issues_json="$(
+    for num in "${issues[@]}"; do
+      gh issue view "$num" --json "$GH_JSON_FIELDS"
+    done | jq -s '.'
+  )"
+
+  local graph_json
+  graph_json="$(build_graph "$issues_json")"
+
+  if [[ "$pretty" == "true" ]]; then
+    print_pretty "$graph_json"
+  else
+    echo "$graph_json"
+  fi
+}
+
+main "$@"
