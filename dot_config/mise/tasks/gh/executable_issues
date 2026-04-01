@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+#MISE description="Scan GitHub issues by number, range, or list"
+#MISE alias="ghi"
+#MISE dir="{{cwd}}"
+#USAGE arg "[selector]" help="Issue number (7), range (10-12), or comma list (1,5,10-12,99)"
+#USAGE flag "--json" help="Output issues as a JSON array"
+set -euo pipefail
+
+# Fields emitted in --json mode. Adjust to taste.
+GH_JSON_FIELDS="number,title,body,state,stateReason,author,assignees,labels,milestone,url,createdAt,updatedAt,closedAt,comments"
+
+# ──────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────
+
+expand_range() {
+  local range="$1"
+  local start="${range%-*}"
+  local end="${range#*-}"
+  for ((i = start; i <= end; i++)); do
+    issues+=("$i")
+  done
+}
+
+parse_selector() {
+  local input="$1"
+  IFS=',' read -r -a parts <<< "$input"
+  for part in "${parts[@]}"; do
+    if [[ "$part" =~ ^[0-9]+$ ]]; then
+      issues+=("$part")
+    elif [[ "$part" =~ ^[0-9]+-[0-9]+$ ]]; then
+      expand_range "$part"
+    else
+      echo "error: invalid selector token: '$part'" >&2
+      exit 1
+    fi
+  done
+}
+
+dedup_sort() {
+  if [[ ${#issues[@]} -eq 0 ]]; then
+    return
+  fi
+  mapfile -t issues < <(printf "%s\n" "${issues[@]}" | sort -n | uniq)
+}
+
+# ──────────────────────────────────────────────
+# Output modes
+# ──────────────────────────────────────────────
+
+print_pretty() {
+  for num in "${issues[@]}"; do
+    printf "\033[1;36m===== Issue #%s =====\033[0m\n" "$num"
+    gh issue view "$num"
+    echo
+  done
+}
+
+print_json() {
+  for num in "${issues[@]}"; do
+    gh issue view "$num" --json "$GH_JSON_FIELDS"
+  done | jq -s '.'
+}
+
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
+
+main() {
+  local selector="${1:-}"
+  issues=()
+
+  if [[ -z "$selector" ]]; then
+    mapfile -t issues < <(gh issue list --json number --jq '.[].number')
+  else
+    parse_selector "$selector"
+  fi
+
+  dedup_sort
+
+  if [[ ${#issues[@]} -eq 0 ]]; then
+    echo "No issues found." >&2
+    exit 0
+  fi
+
+  if [[ "${usage_json:-false}" == "true" ]]; then
+    print_json
+  else
+    print_pretty
+  fi
+}
+
+main "$@"
