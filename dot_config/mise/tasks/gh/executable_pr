@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#MISE description="Scan pull requests by number, range, or list"
+#MISE alias="ghp"
+#MISE dir="{{cwd}}"
+#USAGE arg "[selector]" help="PR number (7), range (10-12), or comma list (1,5,10-12,99)"
+#USAGE flag "--json" help="Output PRs as a JSON array"
+set -euo pipefail
+
+GH_JSON_FIELDS="number,title,body,state,isDraft,author,assignees,reviewRequests,reviews,labels,milestone,headRefName,baseRefName,mergeStateStatus,statusCheckRollup,url,createdAt,updatedAt,closedAt,mergedAt"
+
+# ──────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────
+
+expand_range() {
+  local range="$1"
+  local start="${range%-*}"
+  local end="${range#*-}"
+  for ((i = start; i <= end; i++)); do
+    prs+=("$i")
+  done
+}
+
+parse_selector() {
+  local input="$1"
+  IFS=',' read -r -a parts <<< "$input"
+  for part in "${parts[@]}"; do
+    if [[ "$part" =~ ^[0-9]+$ ]]; then
+      prs+=("$part")
+    elif [[ "$part" =~ ^[0-9]+-[0-9]+$ ]]; then
+      expand_range "$part"
+    else
+      echo "error: invalid selector token: '$part'" >&2
+      exit 1
+    fi
+  done
+}
+
+dedup_sort() {
+  if [[ ${#prs[@]} -eq 0 ]]; then
+    return
+  fi
+  mapfile -t prs < <(printf "%s\n" "${prs[@]}" | sort -n | uniq)
+}
+
+# ──────────────────────────────────────────────
+# Output modes
+# ──────────────────────────────────────────────
+
+print_pretty() {
+  for num in "${prs[@]}"; do
+    printf "\033[1;35m===== PR #%s =====\033[0m\n" "$num"
+    gh pr view "$num"
+    echo
+  done
+}
+
+print_json() {
+  for num in "${prs[@]}"; do
+    gh pr view "$num" --json "$GH_JSON_FIELDS"
+  done | jq -s '.'
+}
+
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
+
+main() {
+  local selector=""
+  local json=false
+
+  for arg in "$@"; do
+    case "$arg" in
+      --json) json=true ;;
+      -*) echo "error: unknown flag: '$arg'" >&2; exit 1 ;;
+      *)  selector="$arg" ;;
+    esac
+  done
+
+  prs=()
+
+  if [[ -z "$selector" ]]; then
+    mapfile -t prs < <(gh pr list --json number --jq '.[].number')
+  else
+    parse_selector "$selector"
+  fi
+
+  dedup_sort
+
+  if [[ ${#prs[@]} -eq 0 ]]; then
+    echo "No pull requests found." >&2
+    exit 0
+  fi
+
+  if [[ "$json" == "true" ]]; then
+    print_json
+  else
+    print_pretty
+  fi
+}
+
+main "$@"
