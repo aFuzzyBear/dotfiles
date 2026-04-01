@@ -11,6 +11,33 @@ else
   compinit -C  # skip security check on subsequent loads (fast path)
 fi
 
+# ── Tool completions (pnpm, npm, mise, docker, compose) ───────────────────────
+# Generate/update completion files silently and idempotently.
+
+_completion_dir="$HOME/.zsh/completions"
+mkdir -p "$_completion_dir"
+
+# pnpm
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm completion zsh > "$_completion_dir/_pnpm" 2>/dev/null
+fi
+
+# npm
+if command -v npm >/dev/null 2>&1; then
+  npm completion > "$_completion_dir/_npm" 2>/dev/null
+fi
+
+# mise
+if command -v mise >/dev/null 2>&1; then
+  mise completion zsh > "$_completion_dir/_mise" 2>/dev/null
+fi
+
+# docker + compose
+if command -v docker >/dev/null 2>&1; then
+  docker completion zsh > "$_completion_dir/_docker" 2>/dev/null
+  docker compose completion zsh > "$_completion_dir/_docker-compose" 2>/dev/null
+fi
+
 # ── Core behaviour ────────────────────────────────────────────────────────────
 zstyle ':completion:*' menu no                        # let fzf-tab take over
 zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS} # colour completions
