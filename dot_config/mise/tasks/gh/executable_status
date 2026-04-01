@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+#MISE description="Repo dashboard — assigned issues, your PRs, review queue, CI status"
+#MISE alias="ghs"
+#MISE dir="{{cwd}}"
+#USAGE flag "--json" help="Output as JSON"
+set -euo pipefail
+
+# ──────────────────────────────────────────────
+# Colours
+# ──────────────────────────────────────────────
+CYAN='\033[1;36m'
+MAGENTA='\033[1;35m'
+YELLOW='\033[1;33m'
+GREEN='\033[1;32m'
+RED='\033[1;31m'
+DIM='\033[2m'
+RESET='\033[0m'
+
+section() { printf "\n${CYAN}━━━ %s ${DIM}%s${RESET}\n" "$1" "$2"; }
+none()    { printf "  ${DIM}none${RESET}\n"; }
+
+# ──────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────
+
+current_branch() {
+  git rev-parse --abbrev-ref HEAD 2>/dev/null || echo ""
+}
+
+ci_colour() {
+  local conclusion="$1"
+  case "$conclusion" in
+    success|completed)   echo "$GREEN" ;;
+    failure|cancelled)   echo "$RED" ;;
+    in_progress|queued)  echo "$YELLOW" ;;
+    *)                   echo "$DIM" ;;
+  esac
+}
+
+# ──────────────────────────────────────────────
+# Pretty sections
+# ──────────────────────────────────────────────
+
+print_issues() {
+  local json="$1"
+  local count
+  count=$(jq 'length' <<< "$json")
+  section "Assigned to me" "($count open)"
+
+  if [[ "$count" -eq 0 ]]; then none; return; fi
+
+  jq -r '.[] |
+    "  \u001b[1;36m#\(.number)\u001b[0m  \(.title)" +
+    (if .milestone then "  \u001b[2m[\(.milestone.title)]\u001b[0m" else "" end) +
+    "\n  \u001b[2m" + (.labels | map(.name) | join(", ")) + "\u001b[0m"
+  ' <<< "$json"
+}
+
+print_my_prs() {
+  local json="$1"
+  local count
+  count=$(jq 'length' <<< "$json")
+  section "My open PRs" "($count)"
+
+  if [[ "$count" -eq 0 ]]; then none; return; fi
+
+  jq -r '.[] |
+    "  \u001b[1;35m#\(.number)\u001b[0m  \(.title)" +
+    (if .isDraft then "  \u001b[2m[draft]\u001b[0m" else "" end) +
+    (if .mergeStateStatus == "CLEAN" then "  \u001b[32m✓ mergeable\u001b[0m" else "" end) +
+    "\n  \u001b[2m" + .headRefName + "\u001b[0m"
+  ' <<< "$json"
+}
+
+print_review_queue() {
+  local json="$1"
+  local count
+  count=$(jq 'length' <<< "$json")
+  section "Review requested" "($count)"
+
+  if [[ "$count" -eq 0 ]]; then none; return; fi
+
+  jq -r '.[] |
+    "  \u001b[1;33m#\(.number)\u001b[0m  \(.title)" +
+    "\n  \u001b[2mby \(.author.login) · " + .headRefName + "\u001b[0m"
+  ' <<< "$json"
+}
+
+print_ci() {
+  local json="$1"
+  local branch="$2"
+  section "CI on" "$branch"
+
+  if [[ "$json" == "[]" || -z "$json" ]]; then
+    none
+    return
+  fi
+
+  jq -r '.[0] | "\(.conclusion // .status)  \(.name)  \u001b[2m\(.headBranch) · \(.updatedAt)\u001b[0m"' <<< "$json"
+}
+
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
+
+main() {
+  local json=false
+
+  for arg in "$@"; do
+    case "$arg" in
+      --json) json=true ;;
+      -*) echo "error: unknown flag: '$arg'" >&2; exit 1 ;;
+      *)  echo "error: unexpected argument: '$arg'" >&2; exit 1 ;;
+    esac
+  done
+
+  local branch
+  branch="$(current_branch)"
+
+  # Fetch everything in parallel
+  local issues_json my_prs_json review_json ci_json
+  issues_json="$(gh issue list --assignee "@me" \
+    --json number,title,labels,milestone,url --limit 50)"
+  my_prs_json="$(gh pr list --author "@me" \
+    --json number,title,isDraft,headRefName,mergeStateStatus,url --limit 20)"
+  review_json="$(gh pr list --search "review-requested:@me" \
+    --json number,title,author,headRefName,url --limit 20)"
+  ci_json="$(gh run list --branch "$branch" --limit 1 \
+    --json name,status,conclusion,headBranch,updatedAt 2>/dev/null || echo "[]")"
+
+  if [[ "$json" == "true" ]]; then
+    jq -n \
+      --argjson issues  "$issues_json" \
+      --argjson myPrs   "$my_prs_json" \
+      --argjson review  "$review_json" \
+      --argjson ci      "$ci_json" \
+      --arg     branch  "$branch" \
+      '{branch: $branch, assignedIssues: $issues, myPrs: $myPrs, reviewQueue: $review, ci: $ci}'
+    return
+  fi
+
+  printf "${MAGENTA}VDR repo status${RESET}  ${DIM}$(date '+%H:%M:%S')${RESET}"
+
+  print_issues       "$issues_json"
+  print_my_prs       "$my_prs_json"
+  print_review_queue "$review_json"
+  print_ci           "$ci_json" "$branch"
+
+  echo
+}
+
+main "$@"
