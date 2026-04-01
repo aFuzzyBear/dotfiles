@@ -1,15 +1,23 @@
 # ── Completion paths ──────────────────────────────────────────────────────────
+# User completions first (so they override system ones)
 fpath=(~/.zsh/completions $fpath)
 
-# ── Init ──────────────────────────────────────────────────────────────────────
-autoload -Uz compinit
+# ── System completion paths ───────────────────────────────────────────────────
+# Ensure Zsh's built‑in completion functions are available.
 
-# Only rebuild the completion dump once per day
-if [[ -n ~/.zcompdump(#qN.mh+24) ]]; then
-  compinit
-else
-  compinit -C  # skip security check on subsequent loads (fast path)
+# Linux (Debian/Ubuntu/Arch/etc.)
+if [[ -d /usr/share/zsh/functions/Completion ]]; then
+  fpath+=(
+    /usr/share/zsh/functions/Completion/Base
+    /usr/share/zsh/functions/Completion/Linux
+    /usr/share/zsh/functions/Completion/Zsh
+  )
 fi
+
+# macOS (Homebrew)
+# if [[ -d /opt/homebrew/share/zsh/site-functions ]]; then
+#   fpath+=(/opt/homebrew/share/zsh/site-functions)
+# fi
 
 # ── Tool completions (pnpm, npm, mise, docker, compose) ───────────────────────
 # Generate/update completion files silently and idempotently.
@@ -38,19 +46,28 @@ if command -v docker >/dev/null 2>&1; then
   docker compose completion zsh > "$_completion_dir/_docker-compose" 2>/dev/null
 fi
 
+# ── Init ──────────────────────────────────────────────────────────────────────
+autoload -Uz compinit
+
+# Only rebuild the completion dump once per day
+if [[ -n ~/.zcompdump(#qN.mh+24) ]]; then
+  compinit
+else
+  compinit -C  # skip security check on subsequent loads (fast path)
+fi
+
 # ── Core behaviour ────────────────────────────────────────────────────────────
 zstyle ':completion:*' menu no                        # let fzf-tab take over
 zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS} # colour completions
 zstyle ':completion:*:descriptions' format '[%d]'     # group labels
 zstyle ':completion:*:git-checkout:*' sort false      # keep git branch order
-zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'  # case-insensitive match
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'   # case-insensitive match
 
 # ── fzf-tab behaviour ─────────────────────────────────────────────────────────
 zstyle ':fzf-tab:*' switch-group '<' '>'
 zstyle ':fzf-tab:*' fzf-flags '--height=50%' '--layout=reverse' '--info=inline'
 
 # Fix: stop fzf-tab pre-filling the last completed word into the fzf query.
-# 'prefix' = use only what's actually typed so far as the search seed.
 zstyle ':fzf-tab:*' query-string prefix
 
 # ── Previews ──────────────────────────────────────────────────────────────────
