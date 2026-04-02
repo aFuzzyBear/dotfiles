@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+#MISE description="Interactive dashboard — menu over the full gh task suite"
+#MISE alias="ghd"
+#MISE dir="{{cwd}}"
+set -euo pipefail
+
+TASKS="$(dirname "$0")"
+GIT_TASKS="$(dirname "$0")/../git"
+
+# ──────────────────────────────────────────────
+# Header
+# ──────────────────────────────────────────────
+
+print_header() {
+  local repo branch
+  repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo "unknown")
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+  clear
+  gum style \
+    --border=rounded \
+    --border-foreground="12" \
+    --padding="0 2" \
+    --bold \
+    --foreground="15" \
+    "$(gum style --foreground="12" "$repo") $(gum style --foreground="8" "·") $(gum style --foreground="11" "$branch")"
+  echo
+}
+
+# ──────────────────────────────────────────────
+# Parameter collectors
+# ──────────────────────────────────────────────
+
+pick_milestone() {
+  local milestones
+  milestones=$(gh milestone list --json title --jq '.[].title' 2>/dev/null)
+  if [[ -z "$milestones" ]]; then
+    gum style --foreground="9" "No milestones found."
+    return 1
+  fi
+  echo "$milestones" | gum choose \
+    --header "Select milestone" \
+    --header.foreground="8"
+}
+
+pick_selector() {
+  local prompt="${1:-Issue selector}"
+  gum input \
+    --prompt "> " \
+    --prompt.foreground="12" \
+    --placeholder "$prompt  (e.g. 7  or  10-12  or  1,5,10-12)" \
+    --width 60
+}
+
+pick_since() {
+  gum input \
+    --prompt "> " \
+    --prompt.foreground="12" \
+    --placeholder "Lookback window (e.g. 24h, 48h, 7d)" \
+    --value "24h" \
+    --width 20
+}
+
+# ──────────────────────────────────────────────
+# Action executor
+# ──────────────────────────────────────────────
+
+run_action() {
+  local action="$1"
+  echo
+
+  case "$action" in
+
+    "Status")
+      "$TASKS/status"
+      ;;
+
+    "Standup")
+      local since; since=$(pick_since) || return 0
+      [[ -z "$since" ]] && since="24h"
+      "$TASKS/standup" --since "$since"
+      ;;
+
+    "Sprint")
+      local milestone; milestone=$(pick_milestone) || return 0
+      [[ -z "$milestone" ]] && return 0
+      local open_only=""
+      gum confirm "Open issues only?" \
+        --affirmative="Open only" --negative="All" --default=false \
+        && open_only="--open"
+      "$TASKS/sprint" "$milestone" $open_only
+      ;;
+
+    "Blockers")
+      local sel; sel=$(pick_selector "Issue selector") || return 0
+      [[ -z "$sel" ]] && return 0
+      local pretty=""
+      gum confirm "Pretty output?" \
+        --affirmative="Pretty" --negative="JSON" --default=true \
+        && pretty="--pretty"
+      "$TASKS/blockers" "$sel" $pretty
+      ;;
+
+    "Issues")
+      local sel; sel=$(pick_selector "Issue selector  (empty = all)") || return 0
+      "$TASKS/issues" $([[ -n "$sel" ]] && echo "$sel")
+      ;;
+
+    "PRs")
+      local sel; sel=$(pick_selector "PR selector  (empty = all)") || return 0
+      "$TASKS/prs" $([[ -n "$sel" ]] && echo "$sel")
+      ;;
+
+    "Branch PR")
+      "$TASKS/branch-pr"
+      ;;
+
+    "Run Log")
+      local all_flag=""
+      gum confirm "Show all steps?" \
+        --affirmative="All steps" --negative="Failed only" --default=false \
+        && all_flag="--all"
+      "$TASKS/run-log" $all_flag
+      ;;
+
+    "Drift check")
+      local stale_flag=""
+      gum confirm "Check stale blockers?  (slower)" \
+        --affirmative="Yes" --negative="No" --default=false \
+        && stale_flag="--stale"
+      "$TASKS/drift" $stale_flag
+      ;;
+
+    "Create issue")
+      "$TASKS/issue-create"
+      ;;
+
+    "Commit")
+      "$GIT_TASKS/commit"
+      ;;
+
+    "Exit"|"")
+      return 1
+      ;;
+
+  esac
+}
+
+# ──────────────────────────────────────────────
+# Menu
+# ──────────────────────────────────────────────
+
+ACTIONS=(
+  "Status"
+  "Standup"
+  "Sprint"
+  "Blockers"
+  "Issues"
+  "PRs"
+  "Branch PR"
+  "Run Log"
+  "Drift check"
+  "Create issue"
+  "Commit"
+  "Exit"
+)
+
+show_menu() {
+  printf '%s\n' "${ACTIONS[@]}" \
+    | gum choose \
+        --header "What do you want to do?" \
+        --header.foreground="8" \
+        --cursor.foreground="12" \
+        --selected.foreground="12"
+}
+
+# ──────────────────────────────────────────────
+# Main loop
+# ──────────────────────────────────────────────
+
+main() {
+  if ! command -v gum &>/dev/null; then
+    echo "error: gum is not installed — run: mise use -g gum" >&2
+    exit 1
+  fi
+
+  while true; do
+    print_header
+
+    local action
+    action=$(show_menu) || break
+    [[ -z "$action" || "$action" == "Exit" ]] && break
+
+    run_action "$action" || break
+
+    echo
+    read -rsp "$(gum style --foreground="8" "Press enter to return to menu...")" -n1
+  done
+
+  echo
+  gum style --foreground="8" --faint "bye"
+  echo
+}
+
+main "$@"
