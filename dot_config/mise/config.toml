@@ -29,6 +29,7 @@ gh = "latest"
 node = "lts"
 pnpm = "latest"
 jq = "latest"
+gum = "latest"
 "github:tealdeer-rs/tealdeer" = "latest"
 # ripgrep-all (rga) — wraps rg to search PDFs, zip, etc. Distinct from ripgrep.
 # rg itself is provided by apt above.
