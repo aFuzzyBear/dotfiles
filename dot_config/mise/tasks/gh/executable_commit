@@ -1,0 +1,424 @@
+#!/usr/bin/env bash
+#MISE description="Interactive conventional commit builder — reads commitlint.config.ts"
+#MISE alias="gc"
+#MISE dir="{{cwd}}"
+#USAGE flag "--dry-run" help="Print the commit message without committing"
+#USAGE flag "--no-verify" help="Skip pre-commit hooks (passes --no-verify to git)"
+set -euo pipefail
+
+# ──────────────────────────────────────────────
+# Defaults — used when commitlint config is
+# absent or cannot be parsed
+# ──────────────────────────────────────────────
+
+DEFAULT_TYPES="feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
+
+COMMITLINT_CONFIG=""
+for f in commitlint.config.ts commitlint.config.js commitlint.config.mjs .commitlintrc.ts .commitlintrc.js; do
+  [[ -f "$f" ]] && { COMMITLINT_CONFIG="$f"; break; }
+done
+
+# ──────────────────────────────────────────────
+# Parse commitlint config → JSON via tsx/node
+# Emits: { types: string[], scopes: string[] }
+# ──────────────────────────────────────────────
+
+parse_commitlint() {
+  local config="$1"
+
+  # ESM extractor — written to a temp .mjs file so tsx/node
+  # treat it as a module unconditionally. pathToFileURL is
+  # required for dynamic import of local paths in ESM context.
+  local extractor
+  extractor=$(cat <<'EXTRACTOR'
+import { resolve } from 'path'
+import { pathToFileURL } from 'url'
+
+const cfg = process.argv[2]
+try {
+  const url = pathToFileURL(resolve(cfg)).href
+  const mod = await import(url)
+  const resolved = mod.default ?? mod
+  const rules  = resolved.rules ?? {}
+  const typeRule  = rules['type-enum']
+  const scopeRule = rules['scope-enum']
+  const types  = Array.isArray(typeRule?.[2])  ? typeRule[2]  : []
+  const scopes = Array.isArray(scopeRule?.[2]) ? scopeRule[2] : []
+  process.stdout.write(JSON.stringify({ types, scopes }))
+} catch {
+  process.stdout.write(JSON.stringify({ types: [], scopes: [] }))
+}
+EXTRACTOR
+)
+
+  local tmp result=""
+  tmp=$(mktemp --suffix=.mjs)
+  trap 'rm -f "$tmp"' RETURN
+  echo "$extractor" > "$tmp"
+
+  # tsx handles .ts configs (transpiles before import)
+  # node --experimental-vm-modules handles .mjs/.js configs
+  if command -v tsx &>/dev/null; then
+    result=$(tsx "$tmp" "$config" 2>/dev/null || echo "")
+  fi
+  if [[ -z "$result" ]] && command -v node &>/dev/null; then
+    result=$(node "$tmp" "$config" 2>/dev/null || echo "")
+  fi
+
+  echo "${result:-{\"types\":[],\"scopes\":[]}}"
+}
+
+# ──────────────────────────────────────────────
+# Build type + scope lists
+# ──────────────────────────────────────────────
+
+build_types() {
+  local config_json="$1"
+  local from_config
+  from_config=$(jq -r '.types | select(length > 0) | join("|")' <<< "$config_json" 2>/dev/null || echo "")
+  echo "${from_config:-$DEFAULT_TYPES}"
+}
+
+build_scopes() {
+  local config_json="$1"
+  jq -r '.scopes | select(length > 0) | join("|")' <<< "$config_json" 2>/dev/null || echo ""
+}
+
+# ──────────────────────────────────────────────
+# gum helpers
+# ──────────────────────────────────────────────
+
+gum_choose() {
+  local header="$1"; shift
+  printf '%s\n' "$@" | gum choose --header "$header" --header.foreground="12"
+}
+
+gum_input() {
+  local placeholder="$1"
+  local value="${2:-}"
+  gum input \
+    --placeholder "$placeholder" \
+    --value "$value" \
+    --width 72 \
+    --prompt "> " \
+    --prompt.foreground="12"
+}
+
+gum_write() {
+  local header="$1"
+  gum write \
+    --header "$header" \
+    --header.foreground="12" \
+    --placeholder "Supports markdown and paste. Leave empty to skip." \
+    --width 72 \
+    --height 12 \
+    --char-limit 0
+}
+
+# ──────────────────────────────────────────────
+# Assemble conventional commit message
+# ──────────────────────────────────────────────
+
+assemble_message() {
+  local type="$1" scope="$2" description="$3"
+  local body="$4" breaking="$5" breaking_desc="$6"
+  local footer="$7"
+
+  # Title line
+  local title="$type"
+  [[ -n "$scope"   ]] && title="${title}(${scope})"
+  [[ "$breaking" == "true" ]] && title="${title}!"
+  title="${title}: ${description}"
+
+  local message="$title"
+
+  # Body — preserve blank line separator
+  if [[ -n "$body" ]]; then
+    message="${message}"$'\n\n'"${body}"
+  fi
+
+  # Footers
+  local footers=""
+  [[ "$breaking" == "true" && -n "$breaking_desc" ]] && \
+    footers="${footers}"$'\n'"BREAKING CHANGE: ${breaking_desc}"
+  [[ -n "$footer" ]] && \
+    footers="${footers}"$'\n'"${footer}"
+
+  if [[ -n "$footers" ]]; then
+    message="${message}"$'\n'"${footers}"
+  fi
+
+  echo "$message"
+}
+
+# ──────────────────────────────────────────────
+# File staging
+# ──────────────────────────────────────────────
+
+# Git status codes → human label + colour
+status_label() {
+  case "$1" in
+    M)  echo "modified " ;;
+    A)  echo "new file " ;;
+    D)  echo "deleted  " ;;
+    R)  echo "renamed  " ;;
+    C)  echo "copied   " ;;
+    U)  echo "unmerged " ;;
+    \?) echo "untracked" ;;
+    *)  echo "changed  " ;;
+  esac
+}
+
+status_colour() {
+  case "$1" in
+    M)  echo "3"  ;;   # yellow
+    A)  echo "10" ;;   # green
+    D)  echo "9"  ;;   # red
+    R)  echo "6"  ;;   # cyan
+    \?) echo "8"  ;;   # dim
+    *)  echo "15" ;;   # white
+  esac
+}
+
+stage_files() {
+  # Parallel indexed arrays — avoids declare -A scoping quirks
+  local -a files=()
+  local -a labels=()
+  local -a staged=()   # "1" = in index, "0" = not
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local x="${line:0:1}"
+    local y="${line:1:1}"
+    local file="${line:3}"
+    local code="" is_staged="0"
+
+    if [[ "$x" != " " && "$x" != "?" ]]; then
+      code="$x"; is_staged="1"
+    elif [[ "$y" != " " ]]; then
+      code="$y"
+    fi
+    [[ "$x" == "?" && "$y" == "?" ]] && code="?"
+    [[ -z "$code" ]] && continue
+
+    files+=("$file")
+    labels+=("$(status_label "$code")")
+    staged+=("$is_staged")
+  done < <(git status --porcelain --untracked-files=all)
+
+  local total="${#files[@]}"
+  if [[ "$total" -eq 0 ]]; then
+    gum style --faint "  nothing to commit, working tree clean"
+    exit 0
+  fi
+
+  # Count currently staged
+  local staged_count=0
+  for s in "${staged[@]}"; do [[ "$s" == "1" ]] && (( staged_count++ )); done
+
+  echo
+  gum style --bold --foreground="12" \
+    "Files  ($total changed · $staged_count staged)"
+
+  # Build display items + --selected args for pre-selecting staged files
+  local -a items=() sel_args=()
+  for i in "${!files[@]}"; do
+    local item="${labels[$i]}  ${files[$i]}"
+    items+=("$item")
+    [[ "${staged[$i]}" == "1" ]] && sel_args+=("--selected=${item}")
+  done
+
+  # Only include --selected flags when there are staged files to pre-select.
+  # "${sel_args[@]:-}" expands to "" on empty array — that blank arg corrupts gum.
+  local -a picker_args=(
+    --no-limit
+    --header "space to toggle · enter to confirm · esc to abort"
+    --header.foreground="8"
+    --selected.foreground="10"
+    --cursor.foreground="12"
+  )
+  [[ ${#sel_args[@]} -gt 0 ]] && picker_args+=("${sel_args[@]}")
+
+  local selections=""
+  if ! selections=$(
+    printf '%s\n' "${items[@]}" | gum choose "${picker_args[@]}"
+  ); then
+    gum style --foreground="9" "Aborted."
+    exit 0
+  fi
+
+  # Compute delta — stage newly selected, unstage newly deselected
+  local -a to_stage=() to_unstage=()
+  for i in "${!files[@]}"; do
+    local item="${labels[$i]}  ${files[$i]}"
+    local now_selected="0"
+    while IFS= read -r sel; do
+      [[ "$sel" == "$item" ]] && { now_selected="1"; break; }
+    done <<< "$selections"
+
+    [[ "$now_selected" == "1" && "${staged[$i]}" == "0" ]] && to_stage+=("${files[$i]}")
+    [[ "$now_selected" == "0" && "${staged[$i]}" == "1" ]] && to_unstage+=("${files[$i]}")
+  done
+
+  [[ ${#to_stage[@]}   -gt 0 ]] && git add             -- "${to_stage[@]}"
+  [[ ${#to_unstage[@]} -gt 0 ]] && git restore --staged -- "${to_unstage[@]}"
+
+  # Show confirmed staged state
+  local -a final=()
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local x="${line:0:1}"
+    [[ "$x" != " " && "$x" != "?" ]] && final+=("${line:3}")
+  done < <(git status --porcelain --untracked-files=all)
+
+  echo
+  gum style --bold --foreground="12" "Staged  (${#final[@]})"
+  if [[ ${#final[@]} -eq 0 ]]; then
+    gum style --faint "  none"
+  else
+    for f in "${final[@]}"; do
+      gum style --foreground="10" "  ✓  $f"
+    done
+  fi
+  echo
+
+  if git diff --cached --quiet; then
+    gum style --foreground="9" "Nothing staged — aborting."
+    exit 0
+  fi
+}
+
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
+
+main() {
+  local dry_run=false no_verify=false
+
+  for arg in "$@"; do
+    case "$arg" in
+      --dry-run)   dry_run=true   ;;
+      --no-verify) no_verify=true ;;
+      -*) echo "error: unknown flag: '$arg'" >&2; exit 1 ;;
+      *)  echo "error: unexpected argument: '$arg'" >&2; exit 1 ;;
+    esac
+  done
+
+  # Verify gum is available
+  if ! command -v gum &>/dev/null; then
+    echo "error: gum is not installed — run: mise use -g gum" >&2
+    exit 1
+  fi
+
+  # Verify we're in a git repo
+  if ! git rev-parse --git-dir &>/dev/null; then
+    echo "error: not inside a git repository" >&2
+    exit 1
+  fi
+
+  # Staging is handled by stage_files() below
+
+  # ── Staging ─────────────────────────────────
+  stage_files
+
+  # ── Parse config ────────────────────────────
+  local config_json='{"types":[],"scopes":[]}'
+  local config_source="defaults"
+
+  if [[ -n "$COMMITLINT_CONFIG" ]]; then
+    config_json=$(parse_commitlint "$COMMITLINT_CONFIG")
+    config_source="$COMMITLINT_CONFIG"
+  fi
+
+  local types_str scopes_str
+  types_str=$(build_types  "$config_json")
+  scopes_str=$(build_scopes "$config_json")
+
+  gum style \
+    --foreground="12" --bold \
+    "Conventional commit  $(gum style --foreground="8" --faint "($config_source)")"
+  echo
+
+  # ── Type ────────────────────────────────────
+  IFS='|' read -r -a types_arr <<< "$types_str"
+  local type
+  type=$(gum_choose "Select type" "${types_arr[@]}")
+  [[ -z "$type" ]] && { echo "Aborted." >&2; exit 0; }
+
+  # ── Scope ───────────────────────────────────
+  local scope=""
+  if [[ -n "$scopes_str" ]]; then
+    IFS='|' read -r -a scopes_arr <<< "$scopes_str"
+    scope=$(printf '%s\n' "(none)" "${scopes_arr[@]}" \
+      | gum choose --header "Select scope  (optional)" --header.foreground="12")
+    [[ "$scope" == "(none)" ]] && scope=""
+  else
+    scope=$(gum_input "scope  (optional, e.g. auth, bff)")
+  fi
+
+  # ── Description ─────────────────────────────
+  local description=""
+  while [[ -z "$description" ]]; do
+    description=$(gum_input "short description  (imperative, ≤72 chars)")
+    [[ -z "$description" ]] && gum style --foreground="9" "Description is required."
+  done
+
+  # ── Body ────────────────────────────────────
+  local body
+  body=$(gum_write "Body  (optional — context, motivation, markdown)")
+
+  # ── Breaking change ─────────────────────────
+  local breaking=false breaking_desc=""
+  if gum confirm "Breaking change?" \
+      --affirmative="Yes" \
+      --negative="No" \
+      --default=false; then
+    breaking=true
+    breaking_desc=$(gum_input "Describe the breaking change")
+  fi
+
+  # ── Additional footer ────────────────────────
+  local footer=""
+  if gum confirm "Add a footer token?  (e.g. Closes #13, Co-authored-by: ...)" \
+      --affirmative="Yes" \
+      --negative="No" \
+      --default=false; then
+    footer=$(gum_input "footer  (e.g. Closes #13)")
+  fi
+
+  # ── Assemble ────────────────────────────────
+  local message
+  message=$(assemble_message \
+    "$type" "$scope" "$description" \
+    "$body" "$breaking" "$breaking_desc" \
+    "$footer")
+
+  # ── Preview ─────────────────────────────────
+  echo
+  gum style --border=rounded --border-foreground="12" --padding="1 2" \
+    --bold "Commit message preview"
+  echo
+  gum style --foreground="15" "$message"
+  echo
+
+  if ! gum confirm "Commit?" --affirmative="Commit" --negative="Abort"; then
+    echo "Aborted." >&2
+    exit 0
+  fi
+
+  # ── Commit ──────────────────────────────────
+  local git_flags=()
+  [[ "$no_verify" == "true" ]] && git_flags+=(--no-verify)
+
+  if [[ "$dry_run" == "true" ]]; then
+    echo
+    gum style --foreground="11" "Dry run — would have run:"
+    echo "  git commit ${git_flags[*]:-} -F -"
+    echo
+    echo "$message"
+  else
+    echo "$message" | git commit "${git_flags[@]:-}" -F -
+  fi
+}
+
+main "$@"
