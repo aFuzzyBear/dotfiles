@@ -1,0 +1,19 @@
+{{- $isWSL := false -}}
+{{- $isContainer := false -}}
+{{- $isMacOS := eq .chezmoi.os "darwin" -}}
+
+{{- if eq .chezmoi.os "linux" -}}
+{{-   $procVersion := output "cat" "/proc/version" | lower -}}
+{{-   if contains "microsoft" $procVersion -}}
+{{-     $isWSL = true -}}
+{{-   else if stat "/.dockerenv" -}}
+{{-     $isContainer = true -}}
+{{-   end -}}
+{{- end -}}
+
+[data]
+  isWSL       = {{ $isWSL }}
+  isContainer = {{ $isContainer }}
+  isMacOS     = {{ $isMacOS }}
+  isLinux     = {{ eq .chezmoi.os "linux" }}
+  hostname    = {{ .chezmoi.hostname | quote }}
