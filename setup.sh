@@ -40,6 +40,22 @@ warn()  { echo -e "  ${YELLOW}⚠${NC}  $1"; }
 bold()  { echo -e "${BOLD}$1${NC}"; }
 die()   { echo -e "\n${YELLOW}✗ $1${NC}" >&2; exit 1; }
 
+# ── Platform detection ────────────────────────────────────────────────────────
+is_wsl()       { grep -qi microsoft /proc/version 2>/dev/null; }
+is_container() { [ -f /.dockerenv ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; }
+is_linux()     { [[ "$(uname -s)" == "Linux" ]]; }
+is_macos()     { [[ "$(uname -s)" == "Darwin" ]]; }
+
+if is_linux; then
+  PLATFORM="linux"
+  is_wsl       && PLATFORM="wsl"
+  is_container && PLATFORM="container"
+elif is_macos; then
+  PLATFORM="macos"
+else
+  die "Unsupported platform: $(uname -s)"
+fi
+
 # ── Defaults ──────────────────────────────────────────────────────────────────
 DEFAULT_DOTFILES="https://github.com/aFuzzyBear/dotfiles.git"
 DOTFILES_REPO="$DEFAULT_DOTFILES"
@@ -90,28 +106,39 @@ command -v apt &>/dev/null      || die "apt not found — Ubuntu/Debian only"
 # ── 1. Base packages ──────────────────────────────────────────────────────────
 # apt owns everything here. Rule: if it's needed before `mise install` runs,
 # or if it integrates with systemd, apt owns it — not mise.
-info "Installing base packages..."
-sudo apt update -q 
-sudo apt upgrade -y -q
-sudo apt install -y \
-  curl \
-  git \
-  zsh \
-  gpg \
-  unzip \
-  jq \
-  build-essential \
-  ca-certificates \
-  wslu \
-  pinentry-gtk2 \
-  syncthing \
-  pass \
-  bat \
-  fd-find \
-  ripgrep \
-  btop
+if is_linux; then
+  command -v apt &>/dev/null || die "apt not found — Ubuntu/Debian only"
+  info "Installing base packages..."
+  sudo apt update -q 
+  sudo apt upgrade -y -q
+  sudo apt install -y \
+    curl \
+    git \
+    zsh \
+    gpg \
+    unzip \
+    jq \
+    build-essential \
+    ca-certificates \
+    wslu \
+    pinentry-gtk2 \
+    syncthing \
+    pass \
+    bat \
+    fd-find \
+    ripgrep \
+    btop \
+    bison flex \
+    libreadline-dev \
+    zlib1g-dev \
+    libssl-dev \
+    pkg-config \
+    uuid-dev \
+    libossp-uuid-dev
 
-ok "Base packages installed"
+  ok "Base packages installed"
+  export PATH="$HOME/.local/bin:$PATH" # ensure ~/.local/bin is in PATH for fd/bat below
+fi
 
 #  Ubuntu ships bat as `batcat` and fd as `fdfind` — normalise to expected names
 mkdir -p ~/.local/bin
@@ -122,13 +149,17 @@ export PATH="$HOME/.local/bin:$PATH"
 # ── 2. gh CLI ─────────────────────────────────────────────────────────────────
 if ! command -v gh &>/dev/null; then
   info "Installing gh CLI..."
-  sudo mkdir -p /etc/apt/keyrings
-  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-    | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
-    https://cli.github.com/packages stable main" \
-    | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-  sudo apt update -q && sudo apt install -y gh
+  if is_linux; then
+    sudo mkdir -p /etc/apt/keyrings
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
+      https://cli.github.com/packages stable main" \
+      | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    sudo apt update -q && sudo apt install -y gh
+  elif is_macos; then
+    brew install gh
+  fi
   ok "gh CLI installed"
 else
   ok "gh CLI already installed"
@@ -149,7 +180,7 @@ if [[ ! -f ~/.ssh/id_ed25519 ]]; then
   ssh-keygen -t ed25519 -C "$GIT_EMAIL" -f ~/.ssh/id_ed25519 -N ""
   eval "$(ssh-agent -s)" > /dev/null
   ssh-add ~/.ssh/id_ed25519
-  gh ssh-key add ~/.ssh/id_ed25519.pub --title "$(hostname)-wsl-$(date +%Y%m%d)"
+  gh ssh-key add ~/.ssh/id_ed25519.pub --title "$(hostname)-${PLATFORM}-$(date +%Y%m%d)"
   ok "SSH key generated and added to GitHub"
 else
   ok "SSH key already exists"
@@ -226,6 +257,7 @@ bold "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 if [[ "$SKIP_DOTFILES" == true ]]; then
+
   echo "  Next steps:"
   echo ""
   echo "  1. Apply your dotfiles:"
@@ -237,22 +269,43 @@ if [[ "$SKIP_DOTFILES" == true ]]; then
   echo "  3. Run your bootstrap task graph (if defined):"
   echo "     mise run bootstrap"
 else
-  echo "  Three manual steps remain:"
-  echo ""
-  echo "  1. Generate your machine GPG key:"
-  echo "     gpg --full-generate-key"
-  echo "     gpg --armor --export <KEY_ID>  →  github.com/settings/keys"
-  echo "     git config --global user.signingkey <KEY_ID>"
-  echo "     pass init <KEY_ID>"
-  echo ""
-  echo "  2. Store machine credentials in pass:"
-  echo "     pass insert infisical/$(hostname)/client-id"
-  echo "     pass insert infisical/$(hostname)/client-secret"
-  echo ""
-  echo "  3. Pair Syncthing with your other machines:"
-  echo "     http://localhost:8384  →  Actions  →  Show ID"
-  echo ""
-  echo "  Verify everything is healthy:"
-  echo "     exec zsh && mise run doctor"
+  if [[ "$PLATFORM" == "wsl" ]]; then
+    echo "  Note: you're running in WSL — some features may require additional setup."
+    echo "  Three manual steps remain:"
+    echo ""
+    echo "  1. Generate your machine GPG key:"
+    echo "     gpg --full-generate-key"
+    echo "     gpg --armor --export <KEY_ID>  →  github.com/settings/keys"
+    echo "     git config --global user.signingkey <KEY_ID>"
+    echo "     pass init <KEY_ID>"
+    echo ""
+    echo "  2. Store machine credentials in pass:"
+    echo "     pass insert infisical/client-id"
+    echo "     pass insert infisical/client-secret"
+    echo ""
+    echo "  3. Pair Syncthing with your other machines:"
+    echo "     http://localhost:8384  →  Actions  →  Show ID"
+    echo ""
+    echo "  Verify everything is healthy:"
+    echo "     exec zsh && mise run doctor"
+    elif [[ "$PLATFORM" == "container" ]]; then
+    echo "  You're in a devcontainer — run: exec zsh && mise run doctor"
+    elif [[ "$PLATFORM" == "linux" ]]; then
+     echo "  Two manual steps remain:"
+    echo ""
+    echo "  1. Generate your machine GPG key:"
+    echo "     gpg --full-generate-key"
+    echo "     gpg --armor --export <KEY_ID>  →  github.com/settings/keys"
+    echo "     git config --global user.signingkey <KEY_ID>"
+    echo "     pass init <KEY_ID>"
+    echo ""
+    echo "  2. Store machine credentials in pass:"
+    echo "     pass insert infisical/client-id"
+    echo "     pass insert infisical/client-secret"
+    echo ""
+    echo "  You're on Linux — run: exec zsh && mise run doctor"
+    elif [[ "$PLATFORM" == "macos" ]]; then
+    echo "  You're on macOS — run: exec zsh && mise run doctor"  
+  fi
 fi
 echo ""
