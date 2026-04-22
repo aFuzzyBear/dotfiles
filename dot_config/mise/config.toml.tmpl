@@ -1,57 +1,43 @@
 # ~/.config/mise/config.toml
 # Global mise configuration for FuzzyOS
 # Managed by chezmoi — edit via: czedit ~/.config/mise/config.toml
-#
-# Ownership model:
-#   bootstrap.sh  → installs mise + chezmoi, applies dotfiles, calls mise run bootstrap
-#   [tools]       → every runtime and CLI tool, single source of truth
-#   [tasks]       → full bootstrap task graph + day-to-day operations
+# Generated for: {{ if .isWSL }}WSL{{ else if .isContainer }}devcontainer{{ else if .isMacOS }}macOS{{ else }}Linux{{ end }}
 
 [settings]
 experimental = true
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
-# apt owns bootstrap-time and system-integrated tools:
-#   jq, bat (batcat), fd-find, ripgrep, btop, syncthing, pass, wslu, pinentry-gtk-2
-#
-# mise owns everything else — installed after chezmoi apply materialises this file.
-# Rule: if it's needed before `mise install` runs, apt owns it.
 [tools]
-usage = "latest"
-starship = "latest"
-fastfetch = "latest"
-fzf = "latest"
-zoxide = "latest"
-atuin = "latest"
-chezmoi = "latest"
-eza = "latest"
-gh = "latest"
-node = "lts"
-pnpm = "latest"
-jq = "latest"
-gum = "latest"
+usage      = "latest"
+starship   = "latest"
+fastfetch  = "latest"
+fzf        = "latest"
+zoxide     = "latest"
+atuin      = "latest"
+chezmoi    = "latest"
+eza        = "latest"
+gh         = "latest"
+node       = "lts"
+pnpm       = "latest"
+jq         = "latest"
+gum        = "latest"
 "github:tealdeer-rs/tealdeer" = "latest"
-# ripgrep-all (rga) — wraps rg to search PDFs, zip, etc. Distinct from ripgrep.
-# rg itself is provided by apt above.
 "ripgrep-all" = "latest"
-# syncthing is intentionally NOT here — apt owns it, systemd owns the service.
-# Adding it via mise creates a second binary that conflicts with the systemd unit.
-# See: docs/runbook.md — Syncthing database lock issue
 
 # ── Bootstrap task graph ──────────────────────────────────────────────────────
-# Entry point called by bootstrap.sh after: mise install && mise reshim
-# Safe to re-run — all steps are idempotent.
 
 [tasks.bootstrap]
 description = "Full environment setup — run once after chezmoi apply on a fresh machine"
 depends = [
   "bootstrap:dotfiles",
-  "bootstrap:gpg",
   "bootstrap:shell",
   "bootstrap:identity",
   "bootstrap:plugins",
   "bootstrap:completions",
+  "bootstrap:gpg",
+{{ if .isWSL }}
   "bootstrap:syncthing",
+{{ end }}
 ]
 run = """
 #!/usr/bin/env bash
@@ -66,14 +52,20 @@ echo '  1. Generate GPG key:         gpg --full-generate-key'
 echo '  2. Add to GitHub:            gpg --armor --export <KEY_ID>'
 echo '  3. Init pass store:          pass init <KEY_ID>'
 echo '  4. Store credentials:        pass insert infisical/client-id'
+{{ if .isWSL }}
 echo '  5. Pair Syncthing:           http://localhost:8384'
+{{ else if .isContainer }}
 echo '  6. Launch:                   exec zsh'
+echo '  Remaining manual steps:'
+echo '  1. Auth GitHub (if not done): gh auth login'
+echo '  2. Configure git:             mise run bootstrap:git'
+echo '  3. Launch:                    exec zsh'
+{{ end }}
 echo ''
 """
 
 # ── Dotfiles ──────────────────────────────────────────────────────────────────
 [tasks."bootstrap:dotfiles"]
-
 description = "Apply chezmoi dotfiles and verify managed files are in place"
 run = """
 #!/usr/bin/env bash
@@ -91,7 +83,6 @@ else
   echo "✓ Dotfiles up to date"
 fi
 
-# Verify key managed files landed
 REQUIRED=(
   ~/.zshrc
   ~/.zsh/conf.d/00-general.zsh
@@ -99,7 +90,6 @@ REQUIRED=(
   ~/.zsh/conf.d/20-plugins.zsh
   ~/.zsh/conf.d/30-completion.zsh
   ~/.config/starship.toml
-  ~/.gnupg/gpg-agent.conf
 )
 
 echo "→ Verifying managed files..."
@@ -116,20 +106,20 @@ done
 
 # ── Git global config ─────────────────────────────────────────────────────────
 [tasks."bootstrap:git"]
+description = "Configure git globals — prompts for identity, skips if already set"
+interactive = true
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Pre-populate from existing config or gh API as sensible defaults
 CURRENT_NAME=$(git config --global user.name 2>/dev/null || echo "")
 CURRENT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
 
-# Fall back to gh API if not set
 if [[ -z "$CURRENT_NAME" ]] && gh auth status &>/dev/null; then
   CURRENT_NAME=$(gh api user --jq .name 2>/dev/null || echo "")
 fi
 if [[ -z "$CURRENT_EMAIL" ]] && gh auth status &>/dev/null; then
-  CURRENT_EMAIL=$(gh api user --jq '.email // "\\(.id)+\\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
+  CURRENT_EMAIL=$(gh api user --jq '.email // "\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
 fi
 
 echo ""
@@ -149,34 +139,37 @@ GIT_EMAIL="${INPUT_EMAIL:-$CURRENT_EMAIL}"
 git config --global user.name          "$GIT_NAME"
 git config --global user.email         "$GIT_EMAIL"
 git config --global init.defaultbranch main
+{{ if .isWSL }}
 git config --global commit.gpgsign     true
 git config --global gpg.program        gpg
+{{ end }}
 
-# Wire gh credential helper
 gh auth setup-git 2>/dev/null || true
 
 echo ""
 echo "✓ Git configured"
 echo "  Name:  $GIT_NAME"
 echo "  Email: $GIT_EMAIL"
+{{ if .isWSL }}
 echo ""
 echo "  ⚠ Set signing key after GPG key generation:"
 echo "    git config --global user.signingkey <KEY_ID>"
+{{ end }}
 """
-description = "Configure git globals — prompts for identity, skips if already set"
-interactive = true
 
 # ── GPG agent ─────────────────────────────────────────────────────────────────
 [tasks."bootstrap:gpg"]
-description = "Restart gpg-agent to pick up pinentry config from chezmoi"
+description = "{{ if .isWSL }}Restart gpg-agent to pick up pinentry config from chezmoi{{ else }}No-op — GPG managed by host{{ end }}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-
-# gpg-agent.conf is managed by chezmoi — just restart the agent
+{{ if .isWSL }}
 gpgconf --kill gpg-agent
 echo "✓ gpg-agent restarted with pinentry-gtk-2 config"
 echo "  cache TTL: 8h / max 24h"
+{{ else }}
+echo "  Container — GPG agent managed by host, skipping"
+{{ end }}
 """
 
 # ── Shell setup ───────────────────────────────────────────────────────────────
@@ -186,12 +179,9 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Required directories
 mkdir -p ~/.zsh/{plugins,completions,conf.d}
 echo "✓ ~/.zsh directory structure created"
 
-# Default shell — use usermod not chsh
-# chsh requires PAM authentication which fails in non-interactive mise tasks
 ZSH_PATH="$(which zsh)"
 CURRENT_SHELL="$(getent passwd "$USER" | cut -d: -f7)"
 if [[ "$CURRENT_SHELL" != "$ZSH_PATH" ]]; then
@@ -202,6 +192,7 @@ else
 fi
 """
 
+# ── Plugins ───────────────────────────────────────────────────────────────────
 [tasks."bootstrap:plugins"]
 description = "Clone third-party zsh plugins into ~/.zsh/plugins"
 depends = ["bootstrap:shell"]
@@ -224,7 +215,7 @@ clone https://github.com/zsh-users/zsh-autosuggestions     ~/.zsh/plugins/zsh-au
 clone https://github.com/zsh-users/zsh-syntax-highlighting ~/.zsh/plugins/zsh-syntax-highlighting
 """
 
-# ── Shell completions ─────────────────────────────────────────────────────────
+# ── Completions ───────────────────────────────────────────────────────────────
 [tasks."bootstrap:completions"]
 description = "Generate shell completions for all tools"
 depends = ["bootstrap:shell"]
@@ -242,7 +233,6 @@ npm completion                    > "~/.zsh/completions/_npm"   && echo "✓ npm
 docker completion zsh             > "~/.zsh/completions/_docker" && echo "✓ docker"
 docker compose completion zsh     > "~/.zsh/completions/_docker-compose" && echo "✓ docker compose"
 
-# tealdeer ships a static completion file — find it dynamically
 TLDR_DIR=$(mise where github:tealdeer-rs/tealdeer 2>/dev/null || echo "")
 if [[ -n "$TLDR_DIR" ]]; then
   TLDR_COMP="$TLDR_DIR/completions/zsh_tealdeer"
@@ -256,16 +246,11 @@ echo "✓ All completions generated → ~/.zsh/completions/"
 
 # ── Syncthing ─────────────────────────────────────────────────────────────────
 [tasks."bootstrap:syncthing"]
-description = "Set up Syncthing folder structure, .stignore, and systemd service"
+description = "{{ if .isWSL }}Set up Syncthing folder structure and systemd service{{ else }}No-op — Syncthing not used in container{{ end }}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-
-# Kill any orphaned syncthing processes before starting via systemd.
-# Running syncthing --no-browser manually during setup leaves a process holding
-# a database lock. The systemd service will fail with "resource temporarily
-# unavailable" until the lock is cleared. See: docs/runbook.md
-# Kill orphaned process if present
+{{ if .isWSL }}
 if pgrep -x syncthing > /dev/null; then
   echo "→ Stopping syncthing process..."
   pkill -x syncthing || true
@@ -273,7 +258,6 @@ if pgrep -x syncthing > /dev/null; then
   echo "✓ Process cleared"
 fi
 
-# Clear stale lock files
 find ~/.local/state/syncthing ~/.config/syncthing \
   -name "*.lock" -delete 2>/dev/null || true
 
@@ -287,12 +271,10 @@ else
   echo "  ~/dev already exists"
 fi
 
-# Write .stignore if not present — not chezmoi managed, lives in ~/sync/
 if [[ ! -f ~/sync/.stignore ]]; then
   cat > ~/sync/.stignore << 'IGNORE'
 node_modules
 .pnpm-store
-.npm
 dist
 build
 .next
@@ -310,11 +292,8 @@ Thumbs.db
 *.swp
 IGNORE
   echo "✓ .stignore written"
-else
-  echo "  .stignore already present"
 fi
 
-# Systemd is always the source of truth for the service lifecycle
 if systemctl --user is-enabled syncthing &>/dev/null; then
   systemctl --user restart syncthing
   echo "→ Restarted via systemd"
@@ -329,6 +308,9 @@ if systemctl --user is-active syncthing &>/dev/null; then
 else
   echo "⚠ Syncthing failed to start — run: journalctl --user -u syncthing -n 20"
 fi
+{{ else }}
+echo "  Container — Syncthing skipped"
+{{ end }}
 """
 
 # ── Atuin ─────────────────────────────────────────────────────────────────────
@@ -357,16 +339,35 @@ case "$choice" in
 esac
 """
 
+# ── Identity ──────────────────────────────────────────────────────────────────
+[tasks."bootstrap:identity"]
+description = "Set FuzzyOS identity in /etc/os-release"
+depends = ["bootstrap:shell"]
+hide = true
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+if grep -q 'PRETTY_NAME="FuzzyOS"' /etc/os-release 2>/dev/null; then
+  echo "  FuzzyOS identity already set"
+  exit 0
+fi
+
+sudo sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="FuzzyOS"/' /etc/os-release
+sudo sed -i 's/^NAME=.*/NAME="FuzzyOS"/' /etc/os-release
+echo "✓ OS identity set to FuzzyOS"
+"""
+
+{{ if .isWSL }}
+# ── Syncthing ops (WSL only) ───────────────────────────────────────────────────
 [tasks."syncthing:status"]
 description = "Check Syncthing service status and show recent logs"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-
 echo ""
 echo "── Syncthing status ─────────────────────────────"
 systemctl --user status syncthing --no-pager -l
-
 echo ""
 echo "── Recent logs ──────────────────────────────────"
 journalctl --user -u syncthing -n 20 --no-pager
@@ -377,22 +378,17 @@ description = "Safely restart Syncthing — kills orphaned processes, clears loc
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-
 echo "→ Stopping Syncthing service..."
 systemctl --user stop syncthing 2>/dev/null || true
-
 echo "→ Killing any orphaned syncthing processes..."
 pkill -x syncthing 2>/dev/null || true
 sleep 1
-
 echo "→ Clearing stale lock files..."
 find ~/.local/state/syncthing ~/.config/syncthing \
   -name "*.lock" -delete 2>/dev/null || true
-
 echo "→ Starting Syncthing service..."
 systemctl --user start syncthing
 sleep 2
-
 if systemctl --user is-active syncthing &>/dev/null; then
   echo "✓ Syncthing running cleanly"
 else
@@ -400,7 +396,9 @@ else
   journalctl --user -u syncthing -n 20 --no-pager
 fi
 """
+{{ end }}
 
+# ── Update ────────────────────────────────────────────────────────────────────
 [tasks.update]
 description = "Update all mise tools, dotfiles, and regenerate completions"
 run = """
@@ -424,6 +422,7 @@ git -C ~/.zsh/plugins/zsh-syntax-highlighting    pull --ff-only
 echo "✓ Everything up to date"
 """
 
+# ── Doctor ────────────────────────────────────────────────────────────────────
 [tasks.doctor]
 description = "Verify the environment is healthy"
 run = """
@@ -443,6 +442,10 @@ check() {
   fi
 }
 
+skip() {
+  echo "  – $1 (n/a on {{ if .isContainer }}container{{ else }}this platform{{ end }})"
+}
+
 echo ""
 echo "── Tools ────────────────────────────────"
 check "mise"     mise --version
@@ -454,32 +457,39 @@ check "atuin"    atuin --version
 check "eza"      eza --version
 check "bat"      bat --version
 check "gh"       gh --version
-check "pass"     pass --version
 check "tldr"     command -v tldr
 
 echo ""
 echo "── Shell ────────────────────────────────"
-# Check /etc/passwd directly — $SHELL inside mise task reflects parent process not chsh
-check "zsh default shell"   grep -q "^fuzzy.*zsh$" /etc/passwd
 check "conf.d exists"       test -d "$HOME/.zsh/conf.d"
 check "plugins exist"       test -d "$HOME/.zsh/plugins/fzf-tab"
 check "completions exist"   test -f "$HOME/.zsh/completions/_mise"
 check "starship config"     test -f "$HOME/.config/starship.toml"
 
 echo ""
-echo "── Git & GPG ────────────────────────────"
+echo "── Git ──────────────────────────────────"
 check "git name configured"    git config --global --get user.name
 check "git email configured"   git config --global --get user.email
+check "gh authenticated"       gh auth status
+
+{{ if .isWSL }}
+echo ""
+echo "── GPG ──────────────────────────────────"
+check "pass installed"         pass --version
 check "git signing enabled"    git config --global --get commit.gpgsign
 check "git signing key set"    git config --global --get user.signingkey
 check "gpg-agent running"      gpg-connect-agent /bye
-check "gh authenticated"       gh auth status
 
 echo ""
 echo "── Sync ─────────────────────────────────"
 check "syncthing running"   systemctl --user is-active syncthing
 check "~/dev symlink"       test -L "$HOME/dev"
 check "~/sync exists"       test -d "$HOME/sync"
+{{ else }}
+skip "pass"
+skip "gpg signing"
+skip "syncthing"
+{{ end }}
 
 echo ""
 echo "── Dotfiles ─────────────────────────────"
@@ -488,22 +498,4 @@ check "chezmoi no drift"    chezmoi verify
 echo ""
 echo "  $OK checks passed · $WARN warnings"
 echo ""
-"""
-
-[tasks."bootstrap:identity"]
-description = "Set FuzzyOS identity in /etc/os-release"
-depends = ["bootstrap:shell"]
-hide = true
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-
-if grep -q 'PRETTY_NAME="FuzzyOS"' /etc/os-release 2>/dev/null; then
-  echo "  FuzzyOS identity already set"
-  exit 0
-fi
-
-sudo sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="FuzzyOS"/' /etc/os-release
-sudo sed -i 's/^NAME=.*/NAME="FuzzyOS"/' /etc/os-release
-echo "✓ OS identity set to FuzzyOS"
 """
