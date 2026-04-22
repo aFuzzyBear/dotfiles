@@ -18,21 +18,22 @@
 #   The irreducible minimum that cannot be managed by mise — because mise
 #   doesn't exist yet. Everything else is owned by the mise task graph.
 #
-#   1. apt base packages   — system-level deps mise cannot manage
-#   2. gh CLI              — needed before chezmoi (SSH key upload)
-#   3. GitHub auth         — needed before chezmoi (repo access)
-#   4. SSH key             — machine identity for git
-#   5. mise                — the tool manager itself
-#   6. chezmoi             — materialises dotfiles from your repo
-#   7. mise install        — tools declared in ~/.config/mise/config.toml
-#   8. mise run bootstrap  — hands off to the task graph (if dotfiles provide one)
+#   1. Platform detection  — WSL / Lima / container
+#   2. apt base packages   — system-level deps mise cannot manage
+#   3. gh CLI              — needed before chezmoi (SSH key upload)
+#   4. GitHub auth         — needed before chezmoi (repo access)
+#   5. SSH key             — machine identity for git
+#   6. mise                — the tool manager itself
+#   7. chezmoi             — materialises dotfiles from your repo
+#   8. mise install        — tools declared in ~/.config/mise/config.toml
+#   9. mise run bootstrap  — hands off to the task graph (if dotfiles provide one)
 #
 # After this script completes, the mise task graph owns everything.
 # To verify environment health: mise run doctor
 
 set -euo pipefail
 
-# ── Colours ───────────────────────────────────────────────────────────────────
+# ── Colours / helpers ─────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 info()  { echo -e "\n${BLUE}→${NC} $1"; }
 ok()    { echo -e "  ${GREEN}✓${NC} $1"; }
@@ -41,20 +42,28 @@ bold()  { echo -e "${BOLD}$1${NC}"; }
 die()   { echo -e "\n${YELLOW}✗ $1${NC}" >&2; exit 1; }
 
 # ── Platform detection ────────────────────────────────────────────────────────
+# Order matters: WSL before container before Lima. A Lima VM with Docker
+# installed should NOT be detected as a container — the /.dockerenv check
+# guards against that because Lima's PID 1 is systemd, not a container runtime.
 is_wsl()       { grep -qi microsoft /proc/version 2>/dev/null; }
 is_container() { [ -f /.dockerenv ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; }
+is_lima()      { [[ "$(hostname)" == lima-* ]] || [[ "$(systemd-detect-virt 2>/dev/null)" == "apple" ]]; }
 is_linux()     { [[ "$(uname -s)" == "Linux" ]]; }
-is_macos()     { [[ "$(uname -s)" == "Darwin" ]]; }
 
 if is_linux; then
-  PLATFORM="linux"
-  is_wsl       && PLATFORM="wsl"
-  is_container && PLATFORM="container"
-elif is_macos; then
-  PLATFORM="macos"
+  if is_wsl;         then PLATFORM="wsl"
+  elif is_container; then PLATFORM="container"
+  elif is_lima;      then PLATFORM="lima"
+  else
+    die "Linux detected but no sub-context matched (not WSL, container, or Lima).
+         FuzzyOS does not currently support bare-metal Linux bootstrap.
+         Investigate detection logic before proceeding."
+  fi
 else
-  die "Unsupported platform: $(uname -s)"
+  die "Unsupported platform: $(uname -s). FuzzyOS runs on WSL, Lima, or containers."
 fi
+
+info "Platform detected: $PLATFORM"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 DEFAULT_DOTFILES="https://github.com/aFuzzyBear/dotfiles.git"
@@ -92,6 +101,7 @@ bold "━━━━━━━━━━━━━━━━━━━━━━━━�
 bold "  🐻 FuzzyOS — Environment Setup 🐻"
 bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+echo "  Platform: $PLATFORM"
 if [[ "$SKIP_DOTFILES" == true ]]; then
   echo "  Mode: bare environment (no dotfiles)"
 else
@@ -100,47 +110,43 @@ fi
 echo ""
 
 # ── Sanity checks ─────────────────────────────────────────────────────────────
-[[ "$(uname -s)" == "Linux" ]] || die "Linux/WSL only. For macOS see: docs/macos.md"
-command -v apt &>/dev/null      || die "apt not found — Ubuntu/Debian only"
+command -v apt &>/dev/null || die "apt not found — Ubuntu/Debian only"
 
 # ── 1. Base packages ──────────────────────────────────────────────────────────
 # apt owns everything here. Rule: if it's needed before `mise install` runs,
 # or if it integrates with systemd, apt owns it — not mise.
-if is_linux; then
-  command -v apt &>/dev/null || die "apt not found — Ubuntu/Debian only"
-  info "Installing base packages..."
-  sudo apt update -q 
-  sudo apt upgrade -y -q
-  sudo apt install -y \
-    curl \
-    git \
-    zsh \
-    gpg \
-    unzip \
-    jq \
-    build-essential \
-    ca-certificates \
-    wslu \
-    pinentry-gtk2 \
-    syncthing \
-    pass \
-    bat \
-    fd-find \
-    ripgrep \
-    btop \
-    bison flex \
-    libreadline-dev \
-    zlib1g-dev \
-    libssl-dev \
-    pkg-config \
-    uuid-dev \
-    libossp-uuid-dev
+info "Installing base packages..."
+sudo apt update -q
+sudo apt upgrade -y -q
 
-  ok "Base packages installed"
-  export PATH="$HOME/.local/bin:$PATH" # ensure ~/.local/bin is in PATH for fd/bat below
-fi
+# Common to all Linux contexts — including wslu, which we use inside Lima
+# for URL-opening interop with the Mac host via the port-forwarding mechanism.
+COMMON_PKGS=(
+  curl git zsh gpg unzip jq
+  build-essential ca-certificates
+  wslu
+  syncthing
+  pass
+  bat fd-find ripgrep btop
+  bison flex libreadline-dev zlib1g-dev libssl-dev
+  pkg-config uuid-dev libossp-uuid-dev
+)
 
-#  Ubuntu ships bat as `batcat` and fd as `fdfind` — normalise to expected names
+# Platform-specific pinentry:
+#   WSL:       pinentry-gtk2 — renders graphically via WSLg
+#   Lima:      pinentry-curses — headless VM accessed over VSCode Remote SSH,
+#              needs in-terminal prompts
+#   Container: pinentry-curses — same reason, no display
+case "$PLATFORM" in
+  wsl)       PLATFORM_PKGS=(pinentry-gtk2) ;;
+  lima)      PLATFORM_PKGS=(pinentry-curses) ;;
+  container) PLATFORM_PKGS=(pinentry-curses) ;;
+esac
+
+sudo apt install -y "${COMMON_PKGS[@]}" "${PLATFORM_PKGS[@]}"
+ok "Base packages installed ($PLATFORM variant)"
+
+# Ubuntu ships bat as `batcat` and fd as `fdfind` — normalise to expected names
 mkdir -p ~/.local/bin
 [[ -f /usr/bin/batcat ]] && ln -sf /usr/bin/batcat ~/.local/bin/bat && ok "bat symlinked"
 [[ -f /usr/bin/fdfind ]] && ln -sf /usr/bin/fdfind ~/.local/bin/fd  && ok "fd symlinked"
@@ -149,17 +155,13 @@ export PATH="$HOME/.local/bin:$PATH"
 # ── 2. gh CLI ─────────────────────────────────────────────────────────────────
 if ! command -v gh &>/dev/null; then
   info "Installing gh CLI..."
-  if is_linux; then
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
-      https://cli.github.com/packages stable main" \
-      | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-    sudo apt update -q && sudo apt install -y gh
-  elif is_macos; then
-    brew install gh
-  fi
+  sudo mkdir -p /etc/apt/keyrings
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
+    https://cli.github.com/packages stable main" \
+    | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+  sudo apt update -q && sudo apt install -y gh
   ok "gh CLI installed"
 else
   ok "gh CLI already installed"
@@ -187,7 +189,7 @@ else
 fi
 
 # ── 5. mise ───────────────────────────────────────────────────────────────────
-if ! command -v ~/.local/bin/mise &>/dev/null; then
+if ! command -v mise &>/dev/null; then
   info "Installing mise..."
   curl https://mise.run | sh
   ok "mise installed"
@@ -233,7 +235,6 @@ else
   warn "Add tools with: mise use -g <tool>"
 fi
 
-
 # ── 8. Bootstrap task graph ───────────────────────────────────────────────────
 if mise tasks 2>/dev/null | grep -q "^bootstrap"; then
   info "Running bootstrap task graph..."
@@ -257,7 +258,6 @@ bold "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 if [[ "$SKIP_DOTFILES" == true ]]; then
-
   echo "  Next steps:"
   echo ""
   echo "  1. Apply your dotfiles:"
@@ -269,43 +269,52 @@ if [[ "$SKIP_DOTFILES" == true ]]; then
   echo "  3. Run your bootstrap task graph (if defined):"
   echo "     mise run bootstrap"
 else
-  if [[ "$PLATFORM" == "wsl" ]]; then
-    echo "  Note: you're running in WSL — some features may require additional setup."
-    echo "  Three manual steps remain:"
-    echo ""
-    echo "  1. Generate your machine GPG key:"
-    echo "     gpg --full-generate-key"
-    echo "     gpg --armor --export <KEY_ID>  →  github.com/settings/keys"
-    echo "     git config --global user.signingkey <KEY_ID>"
-    echo "     pass init <KEY_ID>"
-    echo ""
-    echo "  2. Store machine credentials in pass:"
-    echo "     pass insert infisical/client-id"
-    echo "     pass insert infisical/client-secret"
-    echo ""
-    echo "  3. Pair Syncthing with your other machines:"
-    echo "     http://localhost:8384  →  Actions  →  Show ID"
-    echo ""
-    echo "  Verify everything is healthy:"
-    echo "     exec zsh && mise run doctor"
-    elif [[ "$PLATFORM" == "container" ]]; then
-    echo "  You're in a devcontainer — run: exec zsh && mise run doctor"
-    elif [[ "$PLATFORM" == "linux" ]]; then
-     echo "  Two manual steps remain:"
-    echo ""
-    echo "  1. Generate your machine GPG key:"
-    echo "     gpg --full-generate-key"
-    echo "     gpg --armor --export <KEY_ID>  →  github.com/settings/keys"
-    echo "     git config --global user.signingkey <KEY_ID>"
-    echo "     pass init <KEY_ID>"
-    echo ""
-    echo "  2. Store machine credentials in pass:"
-    echo "     pass insert infisical/client-id"
-    echo "     pass insert infisical/client-secret"
-    echo ""
-    echo "  You're on Linux — run: exec zsh && mise run doctor"
-    elif [[ "$PLATFORM" == "macos" ]]; then
-    echo "  You're on macOS — run: exec zsh && mise run doctor"  
-  fi
+  case "$PLATFORM" in
+    wsl)
+      echo "  You're running in WSL. Three manual steps remain:"
+      echo ""
+      echo "  1. Generate your machine GPG key:"
+      echo "     gpg --full-generate-key"
+      echo "     gpg --armor --export <KEY_ID>  →  github.com/settings/keys"
+      echo "     git config --global user.signingkey <KEY_ID>"
+      echo "     pass init <KEY_ID>"
+      echo ""
+      echo "  2. Store machine credentials in pass:"
+      echo "     pass insert infisical/client-id"
+      echo "     pass insert infisical/client-secret"
+      echo ""
+      echo "  3. Pair Syncthing with your other machines:"
+      echo "     http://localhost:8384  →  Actions  →  Show ID"
+      echo ""
+      echo "  Verify everything is healthy:"
+      echo "     exec zsh && mise run doctor"
+      ;;
+    lima)
+      echo "  You're in a Lima VM — GPG and pass are mounted from your Mac."
+      echo ""
+      echo "  Verify credential chain works:"
+      echo ""
+      echo "  1. GPG sees the Mac's keys:"
+      echo "     gpg --list-secret-keys"
+      echo ""
+      echo "  2. pass decrypts:"
+      echo "     pass ls"
+      echo ""
+      echo "  3. Pair Syncthing with your other machines:"
+      echo "     http://localhost:8384  →  Actions  →  Show ID"
+      echo ""
+      echo "  If GPG prompts for passphrase in-terminal, the mount is working"
+      echo "  but the Mac's agent hasn't cached — enter it once, it'll stick."
+      echo ""
+      echo "  If you hit 'no terminal' errors from gpg, add to your shell rc:"
+      echo "     export GPG_TTY=\$(tty)"
+      echo ""
+      echo "  Verify environment health:"
+      echo "     exec zsh && mise run doctor"
+      ;;
+    container)
+      echo "  You're in a devcontainer — run: exec zsh && mise run doctor"
+      ;;
+  esac
 fi
 echo ""
