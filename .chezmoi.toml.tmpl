@@ -1,19 +1,38 @@
+{{- $osID := .chezmoi.os -}}
+{{- if hasKey .chezmoi.osRelease "id" -}}
+{{-   $osID = .chezmoi.osRelease.id -}}
+{{- end -}}
+
+{{/* Platform context detection — filesystem and kernel markers only.
+     Verified against Gabe's running Lima VM on 2026-04-22:
+       hostname          → lima-ubuntu
+       systemd-detect-virt → apple
+     /mnt/lima-cidata and /etc/cloud/cloud.cfg.d/90_lima.cfg
+     do not exist in current Lima releases — do not use. */}}
 {{- $isWSL := false -}}
 {{- $isContainer := false -}}
-{{- $isMacOS := eq .chezmoi.os "darwin" -}}
+{{- $isLima := false -}}
 
 {{- if eq .chezmoi.os "linux" -}}
-{{-   $procVersion := output "cat" "/proc/version" | lower -}}
-{{-   if contains "microsoft" $procVersion -}}
-{{-     $isWSL = true -}}
-{{-   else if stat "/.dockerenv" -}}
+{{-   if stat "/proc/version" -}}
+{{-     if regexMatch "(microsoft|WSL)" (include "/proc/version") -}}
+{{-       $isWSL = true -}}
+{{-     end -}}
+{{-   end -}}
+{{-   if stat "/.dockerenv" -}}
 {{-     $isContainer = true -}}
+{{-   end -}}
+{{/*   Lima detection: hostname prefix OR Apple hypervisor.
+       Either signal on its own is sufficient. */}}
+{{-   $virt := output "systemd-detect-virt" | trim -}}
+{{-   if or (hasPrefix "lima-" .chezmoi.hostname) (eq $virt "apple") -}}
+{{-     $isLima = true -}}
 {{-   end -}}
 {{- end -}}
 
 [data]
-  isWSL       = {{ $isWSL }}
-  isContainer = {{ $isContainer }}
-  isMacOS     = {{ $isMacOS }}
-  isLinux     = {{ eq .chezmoi.os "linux" }}
-  hostname    = {{ .chezmoi.hostname | quote }}
+    isWSL       = {{ $isWSL }}
+    isContainer = {{ $isContainer }}
+    isLima      = {{ $isLima }}
+    osid        = {{ $osID | quote }}
+    hostname    = {{ .chezmoi.hostname | quote }}
