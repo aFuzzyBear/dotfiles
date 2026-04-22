@@ -34,8 +34,8 @@ depends = [
   "bootstrap:identity",
   "bootstrap:plugins",
   "bootstrap:completions",
-  "bootstrap:gpg",
 {{ if .isWSL }}
+  "bootstrap:gpg",
   "bootstrap:syncthing",
 {{ end }}
 ]
@@ -119,7 +119,7 @@ if [[ -z "$CURRENT_NAME" ]] && gh auth status &>/dev/null; then
   CURRENT_NAME=$(gh api user --jq .name 2>/dev/null || echo "")
 fi
 if [[ -z "$CURRENT_EMAIL" ]] && gh auth status &>/dev/null; then
-  CURRENT_EMAIL=$(gh api user --jq '.email // "\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
+  CURRENT_EMAIL=$(gh api user --jq '.email // "\\(.id)+\\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
 fi
 
 echo ""
