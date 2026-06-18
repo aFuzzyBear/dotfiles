@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Repo dashboard — assigned issues, your PRs, review queue, CI status"
-#MISE alias="ghs"
 #MISE dir="{{cwd}}"
 #USAGE flag "--json" help="Output as JSON"
 set -euo pipefail

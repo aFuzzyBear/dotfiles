@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Build a dependency graph from issue Blocked-by/Blocks relationships"
-#MISE alias="ghbl"
 #MISE dir="{{cwd}}"
 #USAGE arg "[selector]" help="Issue number (7), range (10-12), or comma list (1,5,10-12,99)"
 #USAGE flag "--pretty" help="Human-readable tree instead of JSON"

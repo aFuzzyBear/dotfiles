@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Show failed step logs for the latest (or specified) workflow run"
-#MISE alias="ghrl"
 #MISE dir="{{cwd}}"
 #USAGE arg "[run_id]" help="Workflow run ID (defaults to latest on current branch)"
 #USAGE flag "--all"    help="Show all steps, not just failures"

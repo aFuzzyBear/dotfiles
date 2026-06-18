@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Interactive dashboard — menu over the full gh task suite"
-#MISE alias="ghd"
 #MISE dir="{{cwd}}"
 set -euo pipefail
 

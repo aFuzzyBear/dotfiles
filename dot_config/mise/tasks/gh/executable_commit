@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Interactive conventional commit builder — reads commitlint.config.ts"
-#MISE alias="gc"
 #MISE dir="{{cwd}}"
 #USAGE flag "--dry-run" help="Print the commit message without committing"
 #USAGE flag "--no-verify" help="Skip pre-commit hooks (passes --no-verify to git)"

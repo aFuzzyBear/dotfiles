@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Scan GitHub issues by number, range, or list"
-#MISE alias="ghi"
 #MISE dir="{{cwd}}"
 #USAGE arg "[selector]" help="Issue number (7), range (10-12), or comma list (1,5,10-12,99)"
 #USAGE flag "--json" help="Output issues as a JSON array"

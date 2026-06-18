@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Topologically sorted execution order for a milestone sprint"
-#MISE alias="ghsp"
 #MISE dir="{{cwd}}"
 #USAGE arg "<milestone>" help="Milestone title or number (e.g. 'Sprint 1' or 1)"
 #USAGE flag "--json"  help="Output as JSON"

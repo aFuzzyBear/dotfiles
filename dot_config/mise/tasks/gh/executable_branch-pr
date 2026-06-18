@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="View the PR for the current (or specified) branch"
-#MISE alias="ghbp"
 #MISE dir="{{cwd}}"
 #USAGE flag "--json" help="Output PR as JSON"
 #USAGE flag "--branch <branch>" help="Target branch (defaults to current)"

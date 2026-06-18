@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Scan pull requests by number, range, or list"
-#MISE alias="ghp"
 #MISE dir="{{cwd}}"
 #USAGE arg "[selector]" help="PR number (7), range (10-12), or comma list (1,5,10-12,99)"
 #USAGE flag "--json" help="Output PRs as a JSON array"
