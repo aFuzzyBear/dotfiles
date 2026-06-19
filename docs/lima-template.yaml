@@ -1,0 +1,104 @@
+# FuzzyOS Lima Template
+# Lima WSL2-equivalent for macOS — Ubuntu 24.04 LTS
+#
+# Usage:
+#   limactl start --name=fuzzyos ~/fuzzyos.yaml
+#   lima  # enters the VM shell
+#
+# First-time setup inside the VM:
+#   curl -sSL https://raw.githubusercontent.com/aFuzzyBear/dotfiles/main/setup.sh | bash
+
+# ── VM configuration ──────────────────────────────────────────────────────────
+vmType: vz           # Apple Virtualization Framework — faster than QEMU on Apple Silicon
+                     # Requires macOS 13.5+. Falls back to QEMU on Intel Macs.
+rosetta:
+  enabled: true      # Enables x86_64 binary support on Apple Silicon via Rosetta 2
+  binfmt: true       # Registers Rosetta as a binfmt handler inside the VM
+
+os: Linux
+arch: default        # Native architecture — arm64 on Apple Silicon, x86_64 on Intel
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: aarch64
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: x86_64
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+cpus: 6
+memory: "16GiB"
+disk: "100GiB"
+
+# ── Mounts ────────────────────────────────────────────────────────────────────
+# Selective mounts only — full home mount as writable causes config conflicts.
+# FuzzyOS installs into the Lima guest home (~/ inside the VM) independently.
+# Only credential material is shared from the Mac.
+mounts:
+  # GPG key material — gives pass full functionality inside the VM
+  # without GPG socket forwarding gymnastics
+  - location: "~/.gnupg"
+    mountPoint: "/home/{{.User}}/.gnupg"
+    writable: true
+    sshfs:
+      followSymlinks: true
+
+  # pass credential store — shared with Mac, GPG-encrypted at rest
+  - location: "~/.password-store"
+    mountPoint: "/home/{{.User}}/.password-store"
+    writable: true
+    sshfs:
+      followSymlinks: true
+
+  # Source code — mount Mac's dev directory into the VM
+  # Keeps code on Mac filesystem so editors/tools on both sides can access it
+  # - location: "~/dev"
+  #   mountPoint: "/home/{{.User}}/dev"
+  #   writable: true
+  #   sshfs:
+  #     followSymlinks: true
+
+# ── Port forwarding ───────────────────────────────────────────────────────────
+# VDR service ports — accessible from Mac browser/tools at localhost
+# Matches VDR's 1xxxx port namespace convention
+portForwards:
+  - guestPortRange: [1024, 65535]
+    hostPortRange: [1024, 65535]
+
+# ── Shell ─────────────────────────────────────────────────────────────────────
+shell: bash   # bootstrap runs in bash; FuzzyOS sets zsh as default via usermod
+
+# ── Provisioning ──────────────────────────────────────────────────────────────
+# Runs once at VM creation time as root, then as the user.
+# Installs the irreducible preamble that setup.sh needs before it runs.
+provision:
+  - mode: system
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      # Ensure apt is ready
+      apt-get update -q
+      apt-get install -y curl git gpg build-essential ca-certificates
+
+      # Docker — installed at provision time so it's available when setup.sh runs
+      curl -fsSL https://get.docker.com | sh
+      usermod -aG docker {{.User}}
+
+      echo "✓ System provision complete"
+
+  - mode: user
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      # Run FuzzyOS bootstrap — chezmoi templates detect isContainer=false,
+      # isWSL=false, so the full Linux branch runs including syncthing tasks.
+      # The GPG and pass mounts above mean credential chain works immediately.
+      curl -sSL https://raw.githubusercontent.com/aFuzzyBear/dotfiles/main/setup.sh | bash
+
+# ── Environment ───────────────────────────────────────────────────────────────
+env:
+  # Hint to chezmoi templates and mise tasks that we're in a Lima VM
+  # Not detected by the isContainer check (no /.dockerenv) — this is intentional.
+  # Lima is a full VM, not a container. Tasks should run fully.
+  LIMA_VM: "1"
