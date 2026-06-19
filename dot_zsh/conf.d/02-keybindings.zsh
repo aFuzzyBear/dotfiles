@@ -1,36 +1,60 @@
-# ── Keymap ────────────────────────────────────────────────────────────────────
-# Emacs keymap — this is the root fix. Without this, Ctrl+A/E and many
-# other bindings simply don't exist in zsh's default `main` keymap.
+# ── Keymap mode ───────────────────────────────────────────────────────────────
+# Use Emacs-style editing (Ctrl+A/E, Alt+F/B, etc.)
 bindkey -e
 
-# ── Line navigation ───────────────────────────────────────────────────────────
-bindkey "^A" beginning-of-line
-bindkey "^E" end-of-line
+# Helper to inspect what escape sequences your terminal actually sends.
+# Run: showkey
+showkey() { cat -v; }
+
+# ── Cleanup: remove weird or duplicate bindings ───────────────────────────────
+# These appear when terminals send hybrid or partial escape sequences.
+bindkey -r "^[^[[C"
+bindkey -r "^[^[[D"
+bindkey -r "^[B"
+bindkey -r "^[F"
 
 # ── Word navigation ───────────────────────────────────────────────────────────
-# Ctrl+Right / Ctrl+Left — terminal sends these escape sequences
-bindkey "^[[1;5C" forward-word
-bindkey "^[[1;5D" backward-word
+# Alt + Left/Right (or Alt+b / Alt+f)
+bindkey "^[b" backward-word
+bindkey "^[f" forward-word
 
-# Fallback sequences (some terminals differ)
-bindkey "^[^[[C"  forward-word
-bindkey "^[^[[D"  backward-word
+# Ctrl + Left/Right (modern terminals: iTerm2, macOS Terminal, VS Code, Kitty)
+bindkey "^[[1;5D" backward-word   # Ctrl + Left
+bindkey "^[[1;5C" forward-word    # Ctrl + Right
 
-# ── Word deletion ─────────────────────────────────────────────────────────────
-bindkey "^[^?" backward-kill-word   # Alt+Backspace
-bindkey "^[d"  kill-word            # Alt+D (kill forward word)
-bindkey "^H"   backward-delete-char # Ctrl+Backspace (some terminals)
+# ── Line navigation ───────────────────────────────────────────────────────────
+# Home / End keys
+bindkey "^[[H" beginning-of-line
+bindkey "^[[F" end-of-line
+
+# Some terminals send these instead:
+bindkey "^[OH" beginning-of-line
+bindkey "^[OF" end-of-line
+
+# ── Deletion behaviour ────────────────────────────────────────────────────────
+# Delete key (forward delete)
+bindkey "^[[3~" delete-char
+
+# Option + Delete (delete previous word)
+bindkey "^[^?" backward-kill-word
+
+# Ctrl + Delete (delete next word)
+bindkey "^[[3;5~" kill-word
 
 # ── History navigation ────────────────────────────────────────────────────────
-# Ctrl+Up / Ctrl+Down — prefix-aware history search
-bindkey "^[[1;5A" history-search-backward
-bindkey "^[[1;5B" history-search-forward
+# Search backward/forward through history with Ctrl+R / Ctrl+S
+bindkey "^R" history-incremental-search-backward
+bindkey "^S" history-incremental-search-forward
 
-# Ctrl+P / Ctrl+N — classic fallbacks (always reliable)
-bindkey "^P" up-line-or-search
-bindkey "^N" down-line-or-search
+# ── Misc ergonomics ───────────────────────────────────────────────────────────
+# Ctrl+K: kill to end of line (default)
+# Ctrl+U: kill to beginning of line (default)
+# Ctrl+Y: yank (default)
+# Ctrl+W: delete previous word (default)
 
-# ── Misc ──────────────────────────────────────────────────────────────────────
-bindkey "^U" kill-whole-line        # Ctrl+U — clear line
-bindkey "^K" kill-line              # Ctrl+K — kill to end of line
-bindkey "^W" backward-kill-word    # Ctrl+W — delete word backward
+# Make Ctrl+L clear screen consistently
+bindkey "^L" clear-screen
+
+# Make Ctrl+P / Ctrl+N behave like up/down arrows (Emacs muscle memory)
+bindkey "^P" up-line-or-history
+bindkey "^N" down-line-or-history
