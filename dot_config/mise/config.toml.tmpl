@@ -223,25 +223,41 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p ~/.zsh/completions
 
-mise completion zsh               > ~/.zsh/completions/_mise  && echo "✓ mise"
-gh   completion --shell zsh       > ~/.zsh/completions/_gh    && echo "✓ gh"
-atuin gen-completions --shell zsh > ~/.zsh/completions/_atuin && echo "✓ atuin"
-pnpm completion zsh               > ~/.zsh/completions/_pnpm  && echo "✓ pnpm"
-npm completion                    > "~/.zsh/completions/_npm"   && echo "✓ npm"
-docker completion zsh             > "~/.zsh/completions/_docker" && echo "✓ docker"
-docker compose completion zsh     > "~/.zsh/completions/_docker-compose" && echo "✓ docker compose"
+mkdir -p ~/.zsh/completions ~/.zsh/completions.d
 
+# ── #compdef-convention tools → ~/.zsh/completions/ (autoloaded by compinit) ──
+# These emit a file whose first line is `#compdef <tool>` and whose internal
+# function name matches the filename. compinit autoloads + binds them.
+
+gh    completion --shell zsh      > ~/.zsh/completions/_gh             && echo "✓ gh"
+atuin gen-completions --shell zsh > ~/.zsh/completions/_atuin          && echo "✓ atuin"
+docker completion zsh             > ~/.zsh/completions/_docker         && echo "✓ docker"
+docker compose completion zsh     > ~/.zsh/completions/_docker-compose && echo "✓ docker compose"
+
+# ── self-registering tools → ~/.zsh/completions.d/ (sourced after compinit) ───
+# These emit a script that calls `compdef` internally with a function name that
+# does NOT match the filename (mise → _mise, pnpm → _pnpm_completion, etc).
+# compinit's autoload can't bind them, so they are SOURCED by the loop in
+# 30-plugins.zsh instead. To classify a new tool: `head -1 $(tool completion zsh)`
+# — if line 1 is `#compdef`, it goes above; otherwise here.
+
+mise completion zsh   > ~/.zsh/completions.d/mise.zsh    && echo "✓ mise"
+npm   completion      > ~/.zsh/completions.d/npm.zsh     && echo "✓ npm"
+pnpm completion zsh   > ~/.zsh/completions.d/pnpm.zsh    && echo "✓ pnpm"
+
+# ── tldr (static completion file shipped in the tool's dir) ───────────────────
 TLDR_DIR=$(mise where github:tealdeer-rs/tealdeer 2>/dev/null || echo "")
 if [[ -n "$TLDR_DIR" ]]; then
   TLDR_COMP="$TLDR_DIR/completions/zsh_tealdeer"
-  [[ -f "$TLDR_COMP" ]] \
-    && cp "$TLDR_COMP" ~/.zsh/completions/_tldr && echo "✓ tldr" \
+  [[ -f "$TLDR_COMP" ]] \\
+    && cp "$TLDR_COMP" ~/.zsh/completions/_tldr && echo "✓ tldr" \\
     || echo "⚠ tldr completion file not found at $TLDR_COMP"
 fi
 
-echo "✓ All completions generated → ~/.zsh/completions/"
+echo "✓ Completions generated"
+echo "  #compdef → ~/.zsh/completions/    (autoloaded)"
+echo "  scripts  → ~/.zsh/completions.d/  (sourced after compinit)"
 """
 
 # ── Syncthing ─────────────────────────────────────────────────────────────────
@@ -499,3 +515,4 @@ echo ""
 echo "  $OK checks passed · $WARN warnings"
 echo ""
 """
+
