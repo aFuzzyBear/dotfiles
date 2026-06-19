@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#MISE description="Generate a zsh completion from a command you supply, filed in the correct bucket"
+#MISE dir="{{cwd}}"
+#USAGE arg "[name]" help="Name for the completion file (e.g. kubectl). Prompted if omitted."
+#USAGE flag "--cmd <cmd>" help="Completion command to run. Prompted if omitted."
+set -euo pipefail
+
+COMPDIR="$HOME/.zsh/completions"      # #compdef-convention files (autoloaded)
+COMPDIR_D="$HOME/.zsh/completions.d"  # self-registering scripts (sourced)
+
+command -v gum &>/dev/null || { echo "✗ gum not installed — mise use -g gum" >&2; exit 1; }
+
+# ── Name ──────────────────────────────────────────────────────────────────────
+NAME="${usage_name:-}"
+if [[ -z "$NAME" ]]; then
+  NAME=$(gum input --prompt "> " --prompt.foreground="12" \
+    --placeholder "completion name (e.g. kubectl, terraform)" --width 50)
+fi
+[[ -z "$NAME" ]] && { echo "✗ name required" >&2; exit 1; }
+
+# ── Command ───────────────────────────────────────────────────────────────────
+# User supplies it verbatim — no guessing. e.g.:
+#   kubectl completion zsh
+#   gh completion --shell zsh
+#   atuin gen-completions --shell zsh
+CMD="${usage_cmd:-}"
+if [[ -z "$CMD" ]]; then
+  CMD=$(gum input --prompt "> " --prompt.foreground="12" \
+    --placeholder "completion command (e.g. '$NAME completion zsh')" \
+    --value "$NAME completion zsh" --width 72)
+fi
+[[ -z "$CMD" ]] && { echo "✗ command required" >&2; exit 1; }
+
+# ── Run it ────────────────────────────────────────────────────────────────────
+gum style --foreground="8" "running: $CMD"
+OUTPUT="$(eval "$CMD" 2>/dev/null || true)"
+
+if [[ -z "$OUTPUT" ]]; then
+  gum style --foreground="9" "✗ command produced no output — check the command and try again"
+  exit 1
+fi
+
+# ── Classify by first line ────────────────────────────────────────────────────
+FIRST_LINE="$(head -1 <<< "$OUTPUT")"
+mkdir -p "$COMPDIR" "$COMPDIR_D"
+
+if [[ "$FIRST_LINE" == \#compdef* ]]; then
+  DEST="$COMPDIR/_$NAME"
+  BUCKET="compdef → autoloaded by compinit"
+  OTHER="$COMPDIR_D/$NAME.zsh"
+else
+  DEST="$COMPDIR_D/$NAME.zsh"
+  BUCKET="self-registering → sourced after compinit"
+  OTHER="$COMPDIR/_$NAME"
+fi
+
+# ── Confirm ───────────────────────────────────────────────────────────────────
+echo
+gum style --border=rounded --border-foreground="12" --padding="0 1" \
+  "$(gum style --bold "$NAME")
+line 1:  $FIRST_LINE
+bucket:  $BUCKET
+dest:    ${DEST/#$HOME/~}"
+echo
+
+gum confirm "Write it?" --affirmative="Write" --negative="Cancel" || { echo "cancelled"; exit 0; }
+
+# Remove a stale file in the other bucket (re-classified tool)
+[[ -f "$OTHER" ]] && rm -f "$OTHER" && gum style --foreground="8" "removed stale ${OTHER/#$HOME/~}"
+
+printf '%s\n' "$OUTPUT" > "$DEST"
+gum style --foreground="10" "✓ ${DEST/#$HOME/~}"
+echo
+gum style --foreground="8" "reload:  exec zsh -l    verify:  print -r -- \${_comps[$NAME]}"
