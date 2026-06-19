@@ -13,21 +13,39 @@ else
 fi
 
 # ── Core behaviour ────────────────────────────────────────────────────────────
-zstyle ':completion:*' menu no                        # let fzf-tab take over
-zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS} # colour completions
-zstyle ':completion:*:descriptions' format '[%d]'     # group labels
-zstyle ':completion:*:git-checkout:*' sort false      # keep git branch order
-zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'   # case-insensitive match
+# Let fzf-tab handle menus instead of builtin completion UI
+zstyle ':completion:*' menu no
+
+# Colourised completion listings (respects LS_COLORS)
+zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
+
+# Group labels for clarity
+zstyle ':completion:*:descriptions' format '[%d]'
+
+# Keep git branch order as-is (don’t sort alphabetically)
+zstyle ':completion:*:git-checkout:*' sort false
+
+# Case-insensitive matching (Foo == foo)
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
+
+# Don’t complete “.” and “..” unless explicitly typed
+zstyle ':completion:*' ignore-parents parent pwd
 
 # ── fzf-tab behaviour ─────────────────────────────────────────────────────────
+# Switch between preview groups with < and >
 zstyle ':fzf-tab:*' switch-group '<' '>'
-zstyle ':fzf-tab:*' fzf-flags '--height=50%' '--layout=reverse' '--info=inline'
 
-# Fix: stop fzf-tab pre-filling the last completed word into the fzf query.
+# Consistent fzf layout
+zstyle ':fzf-tab:*' fzf-flags \
+  '--height=50%' \
+  '--layout=reverse' \
+  '--info=inline'
+
+# Fix: stop fzf-tab pre-filling the last completed word into the fzf query
 zstyle ':fzf-tab:*' query-string prefix
 
 # ── Previews ──────────────────────────────────────────────────────────────────
-# cd preview
+# cd preview: show directory contents with eza (fallback to ls)
 zstyle ':fzf-tab:complete:cd:*' fzf-preview \
   'eza --color=always --icons --group-directories-first $realpath 2>/dev/null || ls --color $realpath'
 
