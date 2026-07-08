@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#MISE description="Show listening ports and their processes"
+#USAGE arg "<filter>" default="" help="Optional port or process name filter"
+
+set -euo pipefail
+
+FILTER="${usage_filter:-}"
+
+main() {
+  local out
+  if command -v ss >/dev/null 2>&1; then
+    out="$(ss -tulpn 2>/dev/null)"
+  elif command -v lsof >/dev/null 2>&1; then
+    out="$(lsof -iTCP -sTCP:LISTEN -iUDP -n -P 2>/dev/null)"
+  else
+    echo "error: need ss or lsof" >&2
+    exit 1
+  fi
+
+  if [[ -n "$FILTER" ]]; then
+    # keep the header line, filter the rest
+    printf '%s\n' "$out" | { IFS= read -r hdr; echo "$hdr"; grep -i -- "$FILTER" || true; }
+  else
+    printf '%s\n' "$out"
+  fi
+}
+
+main
