@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#MISE description="Move files to trash instead of deleting"
+#MISE dir="{{cwd}}"
+#USAGE flag "-v --verbose" help="Print actions"
+#USAGE flag "--empty" help="Empty the trash instead"
+#USAGE arg "<files>…" var=#true default="" help="Files to trash"
+
+set -euo pipefail
+
+VERBOSE="${usage_verbose:-false}"
+EMPTY="${usage_empty:-false}"
+TRASH_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/mytrash"
+
+main() {
+  if $EMPTY; then
+    echo "emptying $TRASH_DIR"
+    rm -rf -- "$TRASH_DIR"
+    return
+  fi
+
+  eval "set -- ${usage_files:?no files given}"
+
+  local day dest f base
+  day="$(date +%Y-%m-%d)"
+  dest="$TRASH_DIR/$day"
+  mkdir -p -- "$dest"
+
+  for f in "$@"; do
+    [[ -e "$f" || -L "$f" ]] || { echo "error: no such file: $f" >&2; exit 1; }
+    base="$(basename -- "$f")"
+    # avoid clobbering same-named files trashed the same day
+    if [[ -e "$dest/$base" ]]; then
+      base="${base}.$(date +%H%M%S).$$"
+    fi
+    if $VERBOSE; then echo "trash: $f -> $dest/$base"; fi
+    mv -- "$f" "$dest/$base"
+  done
+}
+
+main
