@@ -4,6 +4,7 @@
 #USAGE flag "-v --verbose" help="Print actions"
 #USAGE flag "-d --dry-run" help="Dry-run mode (no filesystem changes)"
 #USAGE flag "-f --force" help="Ignore mkdir/touch errors"
+#USAGE arg "<files>…" var=#true help="Files to create"
 
 set -euo pipefail
 
@@ -11,16 +12,22 @@ VERBOSE="${usage_verbose:-false}"
 DRY_RUN="${usage_dry_run:-false}"
 FORCE="${usage_force:-false}"
 
+log() {
+  if $VERBOSE; then
+    printf '%s\n' "$*"
+  fi
+}
+
 mktouch() {
   for f in "$@"; do
     dir="$(dirname "$f")"
 
-    $VERBOSE && printf "mkdir -p %s\n" "$dir"
+    log "mkdir -p $dir"
     if ! $DRY_RUN; then
       mkdir -p "$dir" || { $FORCE || return 1; }
     fi
 
-    $VERBOSE && printf "touch %s\n" "$f"
+    log "touch $f"
     if ! $DRY_RUN; then
       touch "$f" || { $FORCE || return 1; }
     fi
@@ -28,7 +35,16 @@ mktouch() {
 }
 
 main() {
+  if [[ -z "${usage_files:-}" ]]; then
+    echo "error: no files given" >&2
+    exit 1
+  fi
+
+  # usage joins variadic args into one shell-quoted string;
+  # rebuild the argv so filenames with spaces survive
+  eval "set -- $usage_files"
+
   mktouch "$@"
 }
 
-main "$@"
+main
