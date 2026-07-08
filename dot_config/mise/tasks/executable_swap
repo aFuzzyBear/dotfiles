@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Swap two files"
+#MISE dir="{{cwd}}"
+#USAGE arg "<a>" help="First file"
+#USAGE arg "<b>" help="Second file"
+
+set -euo pipefail
+
+A="${usage_a:?}"
+B="${usage_b:?}"
+
+main() {
+  [[ -e "$A" ]] || { echo "error: no such file: $A" >&2; exit 1; }
+  [[ -e "$B" ]] || { echo "error: no such file: $B" >&2; exit 1; }
+
+  local tmp
+  tmp="$(mktemp -u "${A}.swap.XXXXXX")"
+
+  mv -- "$A" "$tmp"
+  mv -- "$B" "$A"
+  mv -- "$tmp" "$B"
+}
+
+main
