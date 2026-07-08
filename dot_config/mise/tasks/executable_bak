@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="Timestamped backup copies of files"
+#MISE dir="{{cwd}}"
+#USAGE flag "-v --verbose" help="Print actions"
+#USAGE arg "<files>…" var=#true help="Files to back up"
+
+set -euo pipefail
+
+VERBOSE="${usage_verbose:-false}"
+
+main() {
+  eval "set -- ${usage_files:?no files given}"
+  local ts f dest
+  ts="$(date +%Y%m%d-%H%M%S)"
+  for f in "$@"; do
+    if [[ ! -e "$f" ]]; then
+      echo "error: no such file: $f" >&2
+      exit 1
+    fi
+    dest="${f%/}.${ts}.bak"
+    if $VERBOSE; then echo "cp -a $f -> $dest"; fi
+    cp -a -- "$f" "$dest"
+  done
+}
+
+main
