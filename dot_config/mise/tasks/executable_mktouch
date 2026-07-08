@@ -2,13 +2,13 @@
 #MISE description="Create files, ensuring parent directories exist"
 #MISE dir="{{cwd}}"
 #USAGE flag "-v --verbose" help="Print actions"
-#USAGE flag "-p --pretend" help="Dry-run mode (no filesystem changes)"
+#USAGE flag "-d --dry-run" help="Dry-run mode (no filesystem changes)"
 #USAGE flag "-f --force" help="Ignore mkdir/touch errors"
 
 set -euo pipefail
 
 VERBOSE="${usage_verbose:-false}"
-PRETEND="${usage_pretend:-false}"
+DRY_RUN="${usage_dry_run:-false}"
 FORCE="${usage_force:-false}"
 
 mktouch() {
@@ -16,19 +16,18 @@ mktouch() {
     dir="$(dirname "$f")"
 
     $VERBOSE && printf "mkdir -p %s\n" "$dir"
-    if ! $PRETEND; then
+    if ! $DRY_RUN; then
       mkdir -p "$dir" || { $FORCE || return 1; }
     fi
 
     $VERBOSE && printf "touch %s\n" "$f"
-    if ! $PRETEND; then
+    if ! $DRY_RUN; then
       touch "$f" || { $FORCE || return 1; }
     fi
   done
 }
 
 main() {
-  # All args after USAGE flags are file paths (brace-expanded by shell)
   mktouch "$@"
 }
 
