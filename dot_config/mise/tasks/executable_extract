@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+#MISE description="Extract any archive without remembering flags"
+#MISE dir="{{cwd}}"
+#USAGE flag "-o --output <dir>" help="Extract into this directory"
+#USAGE arg "<archives>…" var=#true help="Archives to extract"
+
+set -euo pipefail
+
+OUT="${usage_output:-}"
+
+extract_one() {
+  local f="$1" dest="${2:-.}"
+  mkdir -p -- "$dest"
+  case "$f" in
+    *.tar.gz|*.tgz)   tar -xzf "$f" -C "$dest" ;;
+    *.tar.bz2|*.tbz2) tar -xjf "$f" -C "$dest" ;;
+    *.tar.xz|*.txz)   tar -xJf "$f" -C "$dest" ;;
+    *.tar.zst)        tar --zstd -xf "$f" -C "$dest" ;;
+    *.tar)            tar -xf "$f" -C "$dest" ;;
+    *.zip)            unzip -q -- "$f" -d "$dest" ;;
+    *.7z)             7z x -o"$dest" -- "$f" ;;
+    *.rar)            unrar x -- "$f" "$dest/" ;;
+    *.gz)             gunzip -k -- "$f" ;;
+    *.bz2)            bunzip2 -k -- "$f" ;;
+    *.xz)             unxz -k -- "$f" ;;
+    *.zst)            unzstd -- "$f" ;;
+    *.deb)            dpkg-deb -x "$f" "$dest" ;;
+    *) echo "error: don't know how to extract: $f" >&2; return 1 ;;
+  esac
+}
+
+main() {
+  eval "set -- ${usage_files:?no archives given}"
+  local f
+  for f in "$@"; do
+    [[ -f "$f" ]] || { echo "error: no such file: $f" >&2; exit 1; }
+    echo "extracting $f"
+    extract_one "$f" "${OUT:-.}"
+  done
+}
+
+main
