@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#MISE description="Retry a command with exponential backoff"
+#MISE dir="{{cwd}}"
+#USAGE flag "-n --attempts <n>" help="Max attempts (default 5)"
+#USAGE flag "-d --delay <secs>" help="Initial delay in seconds (default 1)"
+#USAGE flag "-m --max-delay <secs>" help="Cap on delay (default 60)"
+#USAGE arg "<cmd>…" var=#true help="Command to run"
+
+set -euo pipefail
+
+ATTEMPTS="${usage_attempts:-5}"
+DELAY="${usage_delay:-1}"
+MAX_DELAY="${usage_max_delay:-60}"
+
+main() {
+  eval "set -- ${usage_cmd:?no command given}"
+
+  local attempt=1 rc
+  while true; do
+    rc=0
+    "$@" || rc=$?
+    if (( rc == 0 )); then
+      return 0
+    fi
+    if (( attempt >= ATTEMPTS )); then
+      echo "retry: failed after $attempt attempts (last exit: $rc)" >&2
+      return "$rc"
+    fi
+    echo "retry: attempt $attempt failed (exit $rc), sleeping ${DELAY}s" >&2
+    sleep "$DELAY"
+    DELAY=$(( DELAY * 2 ))
+    (( DELAY > MAX_DELAY )) && DELAY="$MAX_DELAY"
+    attempt=$(( attempt + 1 ))
+  done
+}
+
+main
