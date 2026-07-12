@@ -183,11 +183,11 @@ set -euo pipefail
 
 mkdir -p ~/.zsh/{plugins,completions,conf.d}
 echo "✓ ~/.zsh directory structure created"
-
 ZSH_PATH="$(which zsh)"
-CURRENT_SHELL="$(getent passwd "$USER" | cut -d: -f7)"
+CURRENT_USER="$(id -un)"
+CURRENT_SHELL="$(getent passwd "$CURRENT_USER" | cut -d: -f7)"
 if [[ "$CURRENT_SHELL" != "$ZSH_PATH" ]]; then
-  sudo usermod -s "$ZSH_PATH" "$USER"
+  sudo usermod -s "$ZSH_PATH" "$CURRENT_USER"
   echo "✓ Default shell set to zsh (takes effect on next login)"
 else
   echo "  zsh already default shell"
