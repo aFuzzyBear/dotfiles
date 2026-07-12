@@ -14,6 +14,9 @@
 #   # Default (applies aFuzzyBear dotfiles — for fuzzybook machines):
 #   curl -sSL https://raw.githubusercontent.com/aFuzzyBear/dotfiles/main/setup.sh | bash
 #
+#   # On minimal images (bare containers), install prerequisites first:
+#   apt update && apt install -y curl ca-certificates
+#
 # What this script owns:
 #   The irreducible minimum that cannot be managed by mise — because mise
 #   doesn't exist yet. Everything else is owned by the mise task graph.
@@ -21,8 +24,8 @@
 #   1. Platform detection  — WSL / Lima / container
 #   2. apt base packages   — system-level deps mise cannot manage
 #   3. gh CLI              — needed before chezmoi (SSH key upload)
-#   4. GitHub auth         — needed before chezmoi (repo access)
-#   5. SSH key             — machine identity for git
+#   4. GitHub auth         — needed before chezmoi (repo access) [skipped in containers]
+#   5. SSH key             — machine identity for git             [skipped in containers]
 #   6. mise                — the tool manager itself
 #   7. chezmoi             — materialises dotfiles from your repo
 #   8. mise install        — tools declared in ~/.config/mise/config.toml
@@ -45,6 +48,14 @@ die()   { echo -e "\n${YELLOW}✗ $1${NC}" >&2; exit 1; }
 # Order matters: WSL before container before Lima. A Lima VM with Docker
 # installed should NOT be detected as a container — the /.dockerenv check
 # guards against that because Lima's PID 1 is systemd, not a container runtime.
+#
+# KNOWN ISSUE (parked for ADR-007 / chezmoi audit): a container running on the
+# WSL2 kernel (e.g. wslc) matches is_wsl via /proc/version before is_container
+# is consulted, so PLATFORM reports "wsl" inside such containers. Kernel
+# strings identify the host, not the environment — /.dockerenv must take
+# precedence. Not fixed here because flipping the order changes which chezmoi
+# profile renders across every template. is_container() itself is sound and is
+# called directly below to gate container-inappropriate steps.
 is_wsl()       { grep -qi microsoft /proc/version 2>/dev/null; }
 is_container() { [ -f /.dockerenv ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; }
 is_lima()      { [[ "$(hostname)" == lima-* ]] || [[ "$(systemd-detect-virt 2>/dev/null)" == "apple" ]]; }
@@ -116,9 +127,14 @@ command -v apt &>/dev/null || die "apt not found — Ubuntu/Debian only"
 # apt owns everything here. Rule: if it's needed before `mise install` runs,
 # or if it integrates with systemd, apt owns it — not mise.
 info "Installing base packages..."
+
+# Root without sudo (minimal containers, root-installed distros): install sudo
+# so every downstream `sudo <cmd>` — here and in the mise task graph — works
+# unmodified as a passthrough.
 if [[ "$(id -u)" -eq 0 ]] && ! command -v sudo &>/dev/null; then
   apt update -q && apt install -y sudo
 fi
+
 sudo apt update -q
 sudo apt upgrade -y -q
 
@@ -171,15 +187,27 @@ else
 fi
 
 # ── 3. GitHub auth ────────────────────────────────────────────────────────────
-if ! gh auth status &>/dev/null; then
+# Containers are ephemeral — no browser for the web flow, and no business
+# holding long-lived credentials. Authenticate manually later if needed.
+if is_container; then
+  warn "Container detected — skipping GitHub auth"
+  warn "Authenticate later with: gh auth login"
+elif ! gh auth status &>/dev/null; then
   info "Authenticating with GitHub..."
   echo "  A browser window will open — complete the auth flow there."
   gh auth login --web -h github.com -s admin:public_key
+  ok "GitHub authenticated"
+else
+  ok "GitHub authenticated"
 fi
-ok "GitHub authenticated"
 
 # ── 4. SSH key ────────────────────────────────────────────────────────────────
-if [[ ! -f ~/.ssh/id_ed25519 ]]; then
+# Skipped in containers: each run would generate a fresh key and upload it to
+# the GitHub account (via gh ssh-key add), littering the account with one
+# orphaned key per ephemeral container. Machine identity is for machines.
+if is_container; then
+  warn "Container detected — skipping SSH key generation"
+elif [[ ! -f ~/.ssh/id_ed25519 ]]; then
   info "Generating SSH key for this machine..."
   GIT_EMAIL=$(gh api user --jq '.email // "\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null || echo "")
   ssh-keygen -t ed25519 -C "$GIT_EMAIL" -f ~/.ssh/id_ed25519 -N ""
