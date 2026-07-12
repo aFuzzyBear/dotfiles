@@ -143,13 +143,23 @@ sudo apt upgrade -y -q
 COMMON_PKGS=(
   curl git zsh gpg unzip jq
   build-essential ca-certificates
-  wslu
-  syncthing
   pass
   bat fd-find ripgrep btop
   bison flex libreadline-dev zlib1g-dev libssl-dev
   pkg-config uuid-dev libossp-uuid-dev
 )
+
+# wslu — host-interop URL opening: WSL and Lima, never containers.
+if ! is_container; then
+  COMMON_PKGS+=(wslu)
+fi
+
+# syncthing — file sync daemon: WSL machines only. PLATFORM alone is not
+# sufficient (containers on the WSL2 kernel misreport as wsl), hence the
+# is_container belt-and-braces.
+if [[ "$PLATFORM" == "wsl" ]] && ! is_container; then
+  COMMON_PKGS+=(syncthing)
+fi
 
 # Platform-specific pinentry:
 #   WSL:       pinentry-gtk2 — renders graphically via WSLg
@@ -331,9 +341,6 @@ else
       echo "  2. pass decrypts:"
       echo "     pass ls"
       echo ""
-      echo "  3. Pair Syncthing with your other machines:"
-      echo "     http://localhost:8384  →  Actions  →  Show ID"
-      echo ""
       echo "  If GPG prompts for passphrase in-terminal, the mount is working"
       echo "  but the Mac's agent hasn't cached — enter it once, it'll stick."
       echo ""
@@ -344,7 +351,7 @@ else
       echo "     exec zsh && mise run doctor"
       ;;
     container)
-      echo "  You're in a devcontainer — run: exec zsh && mise run doctor"
+      echo "  You're in a FuzzyOS ready devcontainer — run: exec zsh && mise run doctor"
       ;;
   esac
 fi
