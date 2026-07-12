@@ -20,7 +20,7 @@
 {{- $isLima := false -}}
 
 {{- if eq .chezmoi.os "linux" -}}
-{{-   if stat "/.dockerenv" -}}
+{{-   if or (stat "/.dockerenv") (env "FUZZYOS_CONTAINER") -}}
 {{-     $isContainer = true -}}
 {{-   end -}}
 {{-   if and (not $isContainer) (stat "/proc/version") -}}
