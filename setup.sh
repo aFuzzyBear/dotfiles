@@ -30,6 +30,7 @@
 #   7. chezmoi             — materialises dotfiles from your repo
 #   8. mise install        — tools declared in ~/.config/mise/config.toml
 #   9. mise run bootstrap  — hands off to the task graph (if dotfiles provide one)
+#      (interactive steps skipped when no tty — e.g. container builds)
 #
 # After this script completes, the mise task graph owns everything.
 # To verify environment health: mise run doctor
@@ -49,15 +50,20 @@ die()   { echo -e "\n${YELLOW}✗ $1${NC}" >&2; exit 1; }
 # installed should NOT be detected as a container — the /.dockerenv check
 # guards against that because Lima's PID 1 is systemd, not a container runtime.
 #
-# KNOWN ISSUE (parked for ADR-007 / chezmoi audit): a container running on the
-# WSL2 kernel (e.g. wslc) matches is_wsl via /proc/version before is_container
+# is_container is env-var-first: `wslc build` RUN steps may not plant
+# /.dockerenv the way interactive `wslc run` does, so the Containerfile sets
+# FUZZYOS_CONTAINER=1 explicitly and the filesystem checks are fallbacks.
+#
+# KNOWN ISSUE: a container running on the WSL2 kernel (e.g. wslc) 
+# matches is_wsl via /proc/version before is_container
 # is consulted, so PLATFORM reports "wsl" inside such containers. Kernel
 # strings identify the host, not the environment — /.dockerenv must take
 # precedence. Not fixed here because flipping the order changes which chezmoi
-# profile renders across every template. is_container() itself is sound and is
-# called directly below to gate container-inappropriate steps.
+# profile renders across every template (the template itself already applies
+# container-first precedence). is_container() is sound and is called directly
+# below to gate container-inappropriate steps.
 is_wsl()       { grep -qi microsoft /proc/version 2>/dev/null; }
-is_container() { [ -f /.dockerenv ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; }
+is_container() { [ -n "${FUZZYOS_CONTAINER:-}" ] || [ -f /.dockerenv ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; }
 is_lima()      { [[ "$(hostname)" == lima-* ]] || [[ "$(systemd-detect-virt 2>/dev/null)" == "apple" ]]; }
 is_linux()     { [[ "$(uname -s)" == "Linux" ]]; }
 
@@ -107,7 +113,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-clear
+# Only clear when stdout is a real terminal — `clear` exits nonzero when TERM
+# is unset (container builds, CI), and set -e turns that cosmetic into a crash.
+if [[ -t 1 && -n "${TERM:-}" ]]; then clear; fi
+
 bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 bold "  🐻 FuzzyOS — Environment Setup 🐻"
 bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -128,6 +137,11 @@ command -v apt &>/dev/null || die "apt not found — Ubuntu/Debian only"
 # or if it integrates with systemd, apt owns it — not mise.
 info "Installing base packages..."
 
+# Containers: never let debconf go interactive (tzdata et al. will quiz you).
+if is_container; then
+  export DEBIAN_FRONTEND=noninteractive
+fi
+
 # Root without sudo (minimal containers, root-installed distros): install sudo
 # so every downstream `sudo <cmd>` — here and in the mise task graph — works
 # unmodified as a passthrough.
@@ -138,8 +152,6 @@ fi
 sudo apt update -q
 sudo apt upgrade -y -q
 
-# Common to all Linux contexts — including wslu, which we use inside Lima
-# for URL-opening interop with the Mac host via the port-forwarding mechanism.
 COMMON_PKGS=(
   curl git zsh gpg unzip jq
   build-essential ca-certificates
@@ -149,7 +161,8 @@ COMMON_PKGS=(
   pkg-config uuid-dev libossp-uuid-dev
 )
 
-# wslu — host-interop URL opening: WSL and Lima, never containers.
+# wslu — host-interop URL opening: WSL and Lima, never containers (no host to
+# interop with, and not reliably packaged on every base image).
 if ! is_container; then
   COMMON_PKGS+=(wslu)
 fi
@@ -281,11 +294,18 @@ if mise tasks 2>/dev/null | grep -q "^bootstrap"; then
   info "Running bootstrap task graph..."
   mise run bootstrap
 
-  info "Configuring git identity..."
-  mise run bootstrap:git < /dev/tty
+  # Interactive steps need a real terminal — a tty exists in `wslc run -it`
+  # and normal installs, but not inside a `wslc build` RUN step or CI.
+  if [[ -e /dev/tty && -r /dev/tty ]]; then
+    info "Configuring git identity..."
+    mise run bootstrap:git < /dev/tty
 
-  info "Setting up Atuin..."
-  mise run bootstrap:atuin < /dev/tty
+    info "Setting up Atuin..."
+    mise run bootstrap:atuin < /dev/tty
+  else
+    warn "No tty — skipping interactive steps"
+    warn "Run later: mise run bootstrap:git && mise run bootstrap:atuin"
+  fi
 else
   warn "No bootstrap task found — skipping"
   warn "If your dotfiles define a bootstrap task, run: mise run bootstrap"
@@ -312,23 +332,28 @@ if [[ "$SKIP_DOTFILES" == true ]]; then
 else
   case "$PLATFORM" in
     wsl)
-      echo "  You're running in WSL. Three manual steps remain:"
-      echo ""
-      echo "  1. Generate your machine GPG key:"
-      echo "     gpg --full-generate-key"
-      echo "     gpg --armor --export <KEY_ID>  →  github.com/settings/keys"
-      echo "     git config --global user.signingkey <KEY_ID>"
-      echo "     pass init <KEY_ID>"
-      echo ""
-      echo "  2. Store machine credentials in pass:"
-      echo "     pass insert infisical/client-id"
-      echo "     pass insert infisical/client-secret"
-      echo ""
-      echo "  3. Pair Syncthing with your other machines:"
-      echo "     http://localhost:8384  →  Actions  →  Show ID"
-      echo ""
-      echo "  Verify everything is healthy:"
-      echo "     exec zsh && mise run doctor"
+      if is_container; then
+        echo "  You're in a container on the WSL2 kernel — run: exec zsh && mise run doctor"
+        echo "  (GitHub auth and SSH keys were intentionally skipped.)"
+      else
+        echo "  You're running in WSL. Three manual steps remain:"
+        echo ""
+        echo "  1. Generate your machine GPG key:"
+        echo "     gpg --full-generate-key"
+        echo "     gpg --armor --export <KEY_ID>  →  github.com/settings/keys"
+        echo "     git config --global user.signingkey <KEY_ID>"
+        echo "     pass init <KEY_ID>"
+        echo ""
+        echo "  2. Store machine credentials in pass:"
+        echo "     pass insert infisical/client-id"
+        echo "     pass insert infisical/client-secret"
+        echo ""
+        echo "  3. Pair Syncthing with your other machines:"
+        echo "     http://localhost:8384  →  Actions  →  Show ID"
+        echo ""
+        echo "  Verify everything is healthy:"
+        echo "     exec zsh && mise run doctor"
+      fi
       ;;
     lima)
       echo "  You're in a Lima VM — GPG and pass are mounted from your Mac."
@@ -351,7 +376,7 @@ else
       echo "     exec zsh && mise run doctor"
       ;;
     container)
-      echo "  You're in a FuzzyOS ready devcontainer — run: exec zsh && mise run doctor"
+      echo "  You're in a devcontainer — run: exec zsh && mise run doctor"
       ;;
   esac
 fi
