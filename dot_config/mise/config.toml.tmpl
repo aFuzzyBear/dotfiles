@@ -234,9 +234,12 @@ mkdir -p ~/.zsh/completions ~/.zsh/completions.d
 
 gh    completion --shell zsh      > ~/.zsh/completions/_gh             && echo "✓ gh"
 atuin gen-completions --shell zsh > ~/.zsh/completions/_atuin          && echo "✓ atuin"
-docker completion zsh             > ~/.zsh/completions/_docker         && echo "✓ docker"
-docker compose completion zsh     > ~/.zsh/completions/_docker-compose && echo "✓ docker compose"
-
+if command -v docker &>/dev/null; then
+  docker completion zsh             > ~/.zsh/completions/_docker         && echo "✓ docker"
+  docker compose completion zsh     > ~/.zsh/completions/_docker-compose && echo "✓ docker compose"
+else
+  echo "  docker not present — skipping docker completions"
+fi
 # ── self-registering tools → ~/.zsh/completions.d/ (sourced after compinit) ───
 # These emit a script that calls `compdef` internally with a function name that
 # does NOT match the filename (mise → _mise, pnpm → _pnpm_completion, etc).
