@@ -424,3 +424,84 @@ mise run syncthing:restart   # safe restart — handles orphaned processes and l
 | Machine | Distro | GPG Key |
 |---|---|---|
 | fuzzybook | Ubuntu 24.04 LTS WSL2 | `FB7AC461E5E50DEC` |
+
+
+---
+
+## Container Support — Changes, Issues & Rationale (12 July 2026)
+
+> **Context:** WSL Containers (`wslc`, Windows public preview) landed on fuzzybook.
+> Weekend exercise, deliberately scoped: prove the curl bootstrap works from a bare
+> OCI image, produce a throwaway `Containerfile`, and park everything architectural
+> for the chezmoi-retirement audit. Result: the first FuzzyOS image, built via
+> `wslc build`, running the full bootstrap non-interactively end to end.
+>
+> The `Containerfile` at the repo root is now the **standing clean-boot regression
+> test** — every build re-executes setup.sh from zero. Before this, "one command,
+> blank machine to working environment" had no automated proof.
+
+### Decisions
+
+| Decision | Rationale |
+|---|---|
+| Containers skip GitHub auth + SSH key generation | Ephemeral environments shouldn't mint or hold machine credentials. Also: each pre-gate test run uploaded an orphaned SSH key to the GitHub account, titled after a random container hostname. Machine identity is for machines. |
+| `FUZZYOS_CONTAINER=1` set by the Containerfile; detection is env-var-first | `wslc build` RUN steps do **not** plant `/.dockerenv` (interactive `wslc run` does — verified 12 Jul). Filesystem signals are unreliable in build sandboxes; an explicit env var is deterministic. Both `setup.sh` `is_container()` and the chezmoi template honour it, filesystem checks as fallback. Mirrors the existing `LIMA_VM=1` pattern in the Lima template. |
+| Container profile beats WSL profile in the chezmoi template | Containers on the WSL2 kernel match the `microsoft` string in `/proc/version` — the kernel identifies the **host**, not the environment. Without container-first precedence, the WSL profile renders inside wslc containers and the task graph includes gpg/syncthing tasks that require systemd. |
+| `setup.sh` PLATFORM elif order left **unchanged** (wsl before container) | Flipping it is correct but changes behaviour; the template already applies the correct precedence, and `is_container()` is called directly to gate the steps that matter. Script and template now deliberately disagree about PLATFORM in containers — documented divergence, owned by the audit. |
+| wslu excluded from containers; syncthing scoped to WSL machines only | wslu is host-interop (URL opening) — meaningless in a container and not packaged on every base image (build broke on it). syncthing's own bootstrap task was already `isWSL`-gated; apt was installing a daemon nothing would configure. Lima loses syncthing as a consequence — flagged to Gabe. |
+| Base image pinned to `ubuntu:latest` | Deliberate choice to track current Ubuntu rather than a fixed LTS. Trade-off acknowledged: `latest` retags are silent distro migrations. Revisit at the audit if reproducibility wins. |
+| Interactive bootstrap steps gated behind a functional tty probe | `bootstrap:git` / `bootstrap:atuin` read from `/dev/tty`. Builds have no terminal. Probe must *attempt the open* — see gotcha below. |
+
+### Issues encountered (in discovery order)
+
+**`sudo: command not found` — setup.sh line 119**
+- *Symptom:* bootstrap dies at "Installing base packages" in a bare container.
+- *Root cause:* minimal images run as root with no sudo installed; every `sudo` call (setup.sh **and** the mise task graph — `usermod`, `sed`) assumes it exists.
+- *Fix:* guard at the top of §1 — if uid 0 and no sudo, `apt install sudo`. sudo-as-root is a passthrough, so all downstream calls work unmodified. Chosen over a `$SUDO` variable idiom to avoid touching two files.
+
+**tzdata interactive prompt during apt install**
+- *Symptom:* build/bootstrap stops to ask for a geographic area.
+- *Root cause:* debconf goes interactive when tzdata arrives as a dependency; container images aren't preseeded the way WSL/Lima images are.
+- *Fix:* `export DEBIAN_FRONTEND=noninteractive` when `is_container`.
+
+**`Unable to locate package wslu`**
+- *Symptom:* apt fails on wslu in a container.
+- *Root cause:* host-interop package, not present/needed in container archives.
+- *Fix:* package gating (see Decisions).
+
+**chezmoi template crash: `systemd-detect-virt: executable file not found`**
+- *Symptom:* `chezmoi init --apply` dies rendering `.chezmoi.toml.tmpl`.
+- *Root cause:* the Lima check shelled out via `output "systemd-detect-virt"` unconditionally. WSL distros and Lima VMs ship systemd, so the missing-binary case was invisible until the first environment without it (bare OCI image). chezmoi's `output` fails hard where bash's `$( ) 2>/dev/null` fails soft — same detection logic, different failure mode.
+- *Fix:* `lookPath` guard; `$virt` defaults empty. Hostname check short-circuits first on real Lima.
+
+**`bootstrap:shell` crash: `USER: unbound variable`**
+- *Symptom:* task graph dies at line 8 of bootstrap:shell.
+- *Root cause:* containers don't populate `$USER` (set by login; nothing logged in); tasks run `set -u`.
+- *Fix:* `id -un` — ask the kernel, don't trust the env. Correct everywhere.
+
+**Build crash at `clear`: `TERM environment variable not set`**
+- *Symptom:* build dies immediately after "Platform detected".
+- *Root cause:* `clear` exits nonzero with no TERM; `set -e` promotes cosmetics to fatality.
+- *Fix:* `if [[ -t 1 && -n "${TERM:-}" ]]; then clear; fi` — as an `if`, so the false branch can't itself trip `set -e`.
+
+**Wrong profile rendered in `wslc build` (gpg/syncthing tasks ran, `systemctl: command not found`)**
+- *Symptom:* build reaches the task graph but runs WSL-only tasks.
+- *Root cause:* `/.dockerenv` absent in build sandboxes → template's container check failed → `isWSL` won via kernel string.
+- *Fix:* template honours `FUZZYOS_CONTAINER` (see Decisions). This bug is the proof the env var is necessary, not paranoia.
+
+**`/dev/tty: No such device or address` at bootstrap:git**
+- *Symptom:* build completes the bootstrap banner then dies on the interactive step.
+- *Root cause:* `[[ -e /dev/tty && -r /dev/tty ]]` passed — the node **exists** in the build sandbox — but nothing is behind it, so the redirect fails at open time.
+- *Fix:* functional probe: `if (exec < /dev/tty) 2>/dev/null; then …` — attempt the open in a throwaway subshell instead of inspecting the node. File-test guards lie in sandboxes; only the operation itself tells the truth.
+
+**`bootstrap:completions` assumes docker exists**
+- *Symptom:* two `docker: command not found` lines (non-fatal).
+- *Fix:* `command -v docker` guard around docker/docker-compose completion generation.
+
+### Known-stale items surfaced by this work (owned by the audit)
+
+
+- Bootstrap banner echoes GPG/pass steps unconditionally (needs the same `isWSL` gating the tasks got) and prints a duplicate "Remaining manual steps" header in containers. Cosmetic.
+- Platform detection exists in two implementations (setup.sh functions, chezmoi template) that now deliberately disagree about PLATFORM in containers. Env-var signals exist in two flavours (`FUZZYOS_CONTAINER`, `LIMA_VM`) invented independently. Unify at the audit — setup.sh computes the answer first and could pass it down.
+- `--ci` / non-interactive flag for setup.sh would formalise what the tty probe does ad hoc.
+- `mise oci build` (experimental) implements per-tool OCI layering, apt package layers, and dotfile baking upstream — candidate to replace significant custom machinery. Audit exhibit A. Distinct purpose from the Containerfile, which exists to *test the curl bootstrap*, not to package the environment.
