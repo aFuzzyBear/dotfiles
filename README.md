@@ -1,6 +1,6 @@
 # Fuzzy dotfiles
 
-A fuzzy collection of dotfiles and environment bootstrap for WSL Ubuntu, managed with [chezmoi](https://www.chezmoi.io/).
+A fuzzy collection of dotfiles and environment bootstrap, managed with [chezmoi](https://www.chezmoi.io/) and orchestrated by [mise](https://mise.jdx.dev/).
 
 One command. Blank machine to full working environment.
 
@@ -8,9 +8,23 @@ One command. Blank machine to full working environment.
 curl -sSL https://raw.githubusercontent.com/aFuzzyBear/dotfiles/main/setup.sh | bash
 ```
 
-> 🐻 **“Just the bear necessities,those simple developer remedies, That make you forgot about your worries and your strife...Whatever you are buildinging, to wherever you roam,Everything that a bear would need, fully declared and versioned, ready everytime you come home... Thats why a bear can rest at ease, with all the tools I need, and just enjoy the fuzzy way of life.”**
+> 🐻 **"Just the bear necessities, those simple developer remedies, that make you forget about your worries and your strife... Whatever you are building, to wherever you roam, everything that a bear would need — fully declared and versioned, ready every time you come home... That's why a bear can rest at ease, with all the tools I need, and just enjoy the fuzzy way of life."**
 
-> **Platform scope:** WSL Ubuntu 24.04 LTS. The shell layer (starship, fzf-tab, zoxide, atuin, mise, chezmoi) is fully portable and runs on macOS unchanged. The system bootstrap (apt, pinentry-gtk-2, wslu, systemd) is Ubuntu-specific and would need a Darwin branch. Known future direction — contributions welcome.
+> **Platform scope:** WSL Ubuntu (current LTS/latest) is the primary target, with Lima VMs covering macOS hosts and **Ubuntu containers supported as ephemeral environments** (bootstrap-tested via WSL Containers / `wslc`). The shell layer (starship, fzf-tab, zoxide, atuin, mise, chezmoi) is fully portable. The system bootstrap (apt, pinentry, wslu, systemd) is Ubuntu-specific.
+
+---
+
+## Philosophy — the Systems Operating Experience
+
+FuzzyOS is built as a **forever game**: an environment constructed to compound over years, not to be rebuilt every time a laptop dies. A few principles carry all of it:
+
+**Every layer owns exactly one concern.** apt owns what must exist before mise exists. mise owns every tool and the task graph. chezmoi owns `~`. pass owns machine credentials. No layer reaches into another's domain — when something breaks, you know immediately whose job it is. The seams are explicit and intentional.
+
+**The repo is the source of truth; everything else is a projection.** The home directory is a render of the chezmoi source. GitHub's label UI is a render of `gh-labels.toml`. The prompt, the completions, the systemd units — all derived, all reproducible, none authoritative. If you're editing the projection instead of the source, you're doing it wrong (see the golden rule below).
+
+**The bootstrap is a falsifiable claim, not a hope.** "One command, blank machine to working environment" is only true if something continuously proves it. The `Containerfile` in this repo executes the full bootstrap from a bare image on every build — the claim is re-verified or loudly falsified, never assumed.
+
+**Environments announce themselves.** Platform detection (WSL / Lima / container) selects which profile renders, which tasks run, and which packages install. The prompt itself badges the OS (🐻) and container state (📦) so you always know where you're standing.
 
 ---
 
@@ -31,6 +45,12 @@ curl -sSL https://raw.githubusercontent.com/aFuzzyBear/dotfiles/main/setup.sh | 
   --no-dotfiles
 ```
 
+> **Minimal images (bare containers):** install the prerequisites first —
+> `apt update && apt install -y curl ca-certificates` — then run the one-liner.
+> In containers, setup.sh skips GitHub auth and SSH key generation (ephemeral
+> environments shouldn't hold machine credentials); run `gh auth login`
+> afterwards if you need it.
+
 The `--no-dotfiles` mode gives you a clean mise + gh + SSH key foundation. From there:
 
 ```sh
@@ -41,9 +61,32 @@ mise run bootstrap                  # run your task graph (if defined)
 
 ---
 
+## Containers
+
+FuzzyOS builds and runs as an OCI image. The `Containerfile` at the repo root executes the curl bootstrap non-interactively against a bare Ubuntu image — it is both the image build **and** the standing clean-boot regression test.
+
+```sh
+# Build — re-proves the bootstrap from zero every time
+wslc build -t fuzzyos .
+
+# Run — a full FuzzyOS shell in seconds, no bootstrap wait
+wslc run --rm -it fuzzyos
+```
+
+(Any OCI-compatible engine works — `wslc`, docker, podman.)
+
+Container behaviour, by design:
+
+- `FUZZYOS_CONTAINER=1` is set by the Containerfile — build sandboxes don't always plant `/.dockerenv`, so detection honours the env var first, filesystem signals second.
+- GitHub auth and SSH key generation are **skipped** — containers are ephemeral and shouldn't mint or hold machine credentials.
+- Interactive bootstrap steps (`bootstrap:git`, `bootstrap:atuin`) run only when a real tty is present; builds skip them with instructions for later.
+- Host-interop and machine-level services (wslu, syncthing, GPG agent config) are excluded — there is no host to interop with and no daemon lifecycle to own.
+
+---
+
 ## How it operates
 
-Every layer owns exactly one concern and respects the boundary of the layers around it. When something breaks, you know immediately whose job it is.
+Every layer owns exactly one concern and respects the boundary of the layers around it.
 
 | Layer | Tool | Owns |
 |---|---|---|
@@ -52,10 +95,8 @@ Every layer owns exactly one concern and respects the boundary of the layers aro
 | Toolchain | [mise](https://mise.jdx.dev/) | Every runtime and CLI tool at the right version, plus the task graph |
 | Secrets | [pass](https://www.passwordstore.org/) | Machine-level credentials — Infisical client IDs, API keys, tokens |
 | Project secrets | [varlock](https://varlock.dev/) + [Infisical](https://infisical.com/) | Runtime secret injection per project |
-| File sync | [Syncthing](https://syncthing.net/) | P2P file transport between machines — no cloud middleman |
+| File sync | [Syncthing](https://syncthing.net/) | P2P file transport between WSL machines — no cloud middleman |
 | Shell history | [Atuin](https://atuin.sh/) | Encrypted, synced, survives distro nukes |
-
-The principle: no layer reaches into another's domain. `pass` holds credentials, varlock consumes them at runtime. chezmoi materialises config, mise installs tools. The seams are explicit and intentional.
 
 ---
 
@@ -64,25 +105,28 @@ The principle: no layer reaches into another's domain. `pass` holds credentials,
 ```
 setup.sh
 │
-├── apt           base packages (zsh, gpg, wslu, pinentry-gtk-2, pass, syncthing)
-├── gh            GitHub auth + SSH key generation
+├── platform      detect WSL / Lima / container — selects profile, packages, tasks
+├── apt           base packages (zsh, gpg, pass, pinentry, …)
+│                 + wslu (WSL/Lima only) + syncthing (WSL machines only)
+├── gh            GitHub auth + SSH key generation   (skipped in containers)
 ├── mise          tool manager — the last thing installed manually
 ├── chezmoi       init --apply → materialises ~/.config/mise/config.toml
 ├── mise install  all tools declared in config.toml
 └── mise run bootstrap
     ├── bootstrap:dotfiles      verify chezmoi managed files landed
-    ├── bootstrap:git           interactive — prompts for name/email (pre-filled from gh)
-    ├── bootstrap:gpg           restart gpg-agent with pinentry config
     ├── bootstrap:shell         set zsh default, create ~/.zsh/ structure
+    ├── bootstrap:identity      set FuzzyOS identity in /etc/os-release
     ├── bootstrap:plugins       clone fzf-tab, autosuggestions, syntax-highlighting
     ├── bootstrap:completions   generate completions for all tools
-    ├── bootstrap:syncthing     ~/sync/ structure, ~/dev symlink, systemd service
-    └── bootstrap:atuin         interactive — register / login / skip
+    ├── bootstrap:gpg           restart gpg-agent with pinentry config   (WSL only)
+    ├── bootstrap:syncthing     ~/sync/ structure, ~/dev symlink, systemd (WSL only)
+    ├── bootstrap:git           interactive — prompts for identity        (tty only)
+    └── bootstrap:atuin         interactive — register / login / skip     (tty only)
 ```
 
-Steps 7 and 8 are graceful — if no `config.toml` or `bootstrap` task exists (e.g. bare mode or a dotfiles repo without a task graph), they warn and continue rather than failing.
+The graph is profile-aware: container renders drop the WSL-only tasks entirely, and the interactive steps are gated behind a functional tty probe so non-interactive builds run clean end to end.
 
-After `setup.sh` completes, three manual steps remain — all machine-specific and intentionally not automated:
+After `setup.sh` completes on a **machine** (not a container), three manual steps remain — all machine-specific and intentionally not automated:
 
 1. **GPG key** — one per machine, clear provenance
 2. **pass store** — machine credentials, GPG-encrypted
@@ -156,19 +200,20 @@ Numbered files under `~/.zsh/conf.d/` — explicit load order, single responsibi
   01-history.zsh               # history settings
   02-keybindings.zsh           # key bindings
   10-tools.zsh                 # mise, starship, fzf, zoxide, atuin inits
-  20-plugins.zsh               # fzf-tab, autosuggestions, syntax-highlighting
-  30-completion.zsh            # fzf-tab behaviour, zstyle config
+  20-completion.zsh            # compinit, fzf-tab behaviour, zstyle config
+  30-plugins.zsh               # fzf-tab, autosuggestions, syntax-highlighting
   40-aliases.zsh               # shell aliases
   50-functions.zsh             # shell functions
-  90-exports.zsh               # environment exports
+  60-exports.zsh               # environment exports (templated per platform)
 ~/.zsh/mise-preview.sh         # mise task preview script for fzf-tab
 ~/.config/mise/
   config.toml                  # global tools + task graph
-  env.sh                       # machine-level env (non-secret values only)
-~/.config/starship.toml        # prompt layout and styling
-~/.gnupg/gpg-agent.conf        # pinentry-gtk-2, 8hr / 24hr cache TTL
+~/.config/starship.toml        # prompt — plain-text symbols, no font dependency
+~/.gnupg/gpg-agent.conf        # pinentry, 8hr / 24hr cache TTL (WSL)
 ~/.password-store/             # pass store — GPG encrypted, NOT committed
 ```
+
+> **Load order is load-bearing:** completion setup (20) must run before plugins (30) — fzf-tab and the self-registering completion scripts require compinit to have run first.
 
 > **Never mix aliases and functions with the same name in zsh.** Aliases go in `40-aliases.zsh`, functions go in `50-functions.zsh`. If a function and alias share a name, zsh refuses to define the function and `source ~/.zshrc` won't fix it — only `exec zsh` clears the stale state.
 
@@ -182,6 +227,17 @@ Without `(N)`, an empty `conf.d/` during bootstrap throws an error and breaks th
 
 ---
 
+## Prompt
+
+Starship with **plain-text symbols throughout** — no Nerd Font dependency, so the prompt renders correctly in any terminal, any host, any container. The two glyphs that matter are emoji (dependency-free everywhere):
+
+- 🐻 — the OS badge (FuzzyOS wears the bear)
+- 📦 — container badge, rendered only when running inside a container
+
+Dormant modules for future toolchains (terraform, kubernetes, and the whole language zoo) are pre-configured in `starship.toml`; activating one is a single `$module` addition to the format line.
+
+---
+
 ## mise task graph
 
 The operational interface for the environment. All bootstrap logic lives here — named, documented, dependency-ordered, re-runnable.
@@ -191,11 +247,13 @@ mise tasks                       # list everything
 mise run bootstrap               # full setup — safe to re-run
 mise run bootstrap:plugins       # re-clone zsh plugins
 mise run bootstrap:completions   # regenerate all shell completions
-mise run bootstrap:syncthing     # re-run Syncthing setup
+mise run bootstrap:syncthing     # re-run Syncthing setup (WSL)
 mise run bootstrap:git           # reconfigure git identity (interactive)
 mise run doctor                  # full health check across all layers
 mise run update                  # update tools + dotfiles + plugins + completions
 ```
+
+A `gh:*` task suite (issue graphs, sprint topo-sort, drift checking, conventional commits) lives under `~/.config/mise/tasks/gh/` — design notes in [`docs/gh-suite-design.md`](docs/gh-suite-design.md).
 
 ---
 
@@ -222,8 +280,16 @@ Naming convention: `service/machine/key` — provenance is unambiguous across ma
 
 ## Machines
 
-Each machine gets its own GPG key — commit provenance is unambiguous and a compromised key on one machine doesn't affect the others.
+Each machine gets its own GPG key — commit provenance is unambiguous and a compromised key on one machine doesn't affect the others. Containers deliberately get none.
 
 | Machine | Distro | GPG Key |
 |---|---|---|
-| fuzzybook | Ubuntu 24.04 LTS WSL2 | `FB7AC461E5E50DEC` |
+| fuzzybook | Ubuntu WSL2 | `FB7AC461E5E50DEC` |
+
+---
+
+## Further reading
+
+- [`docs/runbook.md`](docs/runbook.md) — the original manual bootstrap runbook; the historical record of what `setup.sh` automates
+- [`docs/gh-suite-design.md`](docs/gh-suite-design.md) — design decisions behind the `gh:*` task suite
+- [`docs/lima-template.yaml`](docs/lima-template.yaml) — Lima VM template for macOS hosts
