@@ -296,7 +296,7 @@ if mise tasks 2>/dev/null | grep -q "^bootstrap"; then
 
   # Interactive steps need a real terminal — a tty exists in `wslc run -it`
   # and normal installs, but not inside a `wslc build` RUN step or CI.
-  if [[ -e /dev/tty && -r /dev/tty ]]; then
+  if (exec < /dev/tty) 2>/dev/null; then
     info "Configuring git identity..."
     mise run bootstrap:git < /dev/tty
 
